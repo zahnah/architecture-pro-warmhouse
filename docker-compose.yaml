@@ -1,0 +1,12 @@
+services:
+  plantuml-server:
+    image: plantuml/plantuml-server:jetty
+    container_name: plantuml-server
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./schemas/diagrams:/workspace:ro
+    environment:
+      PLANTUML_CONFIG_FILE: /workspace/config/plantuml-preamble.puml
+      PLANTUML_PROPERTY_FILE: /workspace/config/plantuml-server.properties
+    restart: unless-stopped
