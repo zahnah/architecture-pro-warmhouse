@@ -21,21 +21,24 @@ OUT="${DIAGRAMS}/out"
 mkdir -p "$OUT"
 cd "${DIAGRAMS}"
 
-mapfile -t FILES < <(find "${SRC}" -maxdepth 1 -type f -name '*.puml' | sort)
+mapfile -t FILES < <(find "${SRC}" -type f -name '*.puml' | sort)
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "No .puml files in ${SRC}" >&2
+  echo "No .puml files under ${SRC}" >&2
   exit 1
 fi
 
-# paths relative to schemas/diagrams (cwd)
-REL_FILES=()
+EXPORTED=0
 for f in "${FILES[@]}"; do
-  REL_FILES+=("src/$(basename "$f")")
+  rel="$(realpath --relative-to="${DIAGRAMS}" "$f")"
+  path_after_src="${rel#src/}"
+  out_dir="${OUT}/$(dirname "$path_after_src")"
+  mkdir -p "${DIAGRAMS}/${out_dir}"
+
+  "$JAVA" -DRELATIVE_INCLUDE=relative \
+    -Dplantuml.include.path="${DIAGRAMS}/lib/C4:${DIAGRAMS}/lib:${DIAGRAMS}/src" \
+    -jar "$JAR" -tsvg -o "$out_dir" \
+    "$rel"
+  EXPORTED=$((EXPORTED + 1))
 done
 
-"$JAVA" -DRELATIVE_INCLUDE=relative \
-  -Dplantuml.include.path="${DIAGRAMS}/lib/C4:${DIAGRAMS}/lib:${DIAGRAMS}/src" \
-  -jar "$JAR" -tsvg -o "$OUT" \
-  "${REL_FILES[@]}"
-
-echo "Exported ${#REL_FILES[@]} diagram(s) to ${OUT}/"
+echo "Exported ${EXPORTED} diagram(s) under ${OUT}/"
