@@ -1,0 +1,22 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Context Diagram (To-Be)
+
+top to bottom direction
+
+!include C4_Context.puml
+
+Person(user, "Пользователь", "Сам подключает устройства, управляет ими, настраивает сценарии, смотрит телеметрию")
+Person(operator, "Сотрудник компании", "Ведёт каталог моделей устройств и комплектов")
+
+System(warmhouse, "Экосистема «Тёплый дом»", "SaaS-платформа умного дома: управление устройствами разных типов, сценарии, телеметрия")
+
+System_Ext(devices, "Устройства в домах", "Модули компании и партнёров и контроллер дома, который локально исполняет сценарии")
+
+Rel(user, warmhouse, "HTTPS / REST")
+Rel(operator, warmhouse, "HTTPS / REST", "Каталог")
+Rel(warmhouse, devices, "MQTT over TLS", "Настройки устройств и сценарии")
+Rel(devices, warmhouse, "MQTT over TLS", "Телеметрия, состояние, журнал сценариев")
+
+@enduml

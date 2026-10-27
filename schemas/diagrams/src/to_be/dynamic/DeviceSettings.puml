@@ -1,0 +1,33 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Dynamic Diagram: изменение настроек устройства
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(user, "Пользователь")
+
+System_Boundary(warmhouse, "Экосистема «Тёплый дом»") {
+  Container(gateway, "API Gateway", "Go")
+  Container(deviceSvc, "Device Service", "напр. Heating Service")
+  ContainerDb(devicesDb, "Devices DB", "PostgreSQL")
+  ContainerQueue(mqtt, "MQTT Broker", "EMQX")
+  ContainerQueue(eventBus, "Event Bus", "Apache Kafka")
+}
+
+Boundary(home, "Дом пользователя") {
+  System_Ext(device, "Устройство", "напр. термостат")
+}
+
+Rel(user, gateway, "1. Меняет настройку, напр. целевую температуру", "HTTPS / REST")
+Rel(gateway, deviceSvc, "2. SetTarget(deviceId, 22)", "gRPC")
+Rel(deviceSvc, devicesDb, "3. Сохраняет желаемые настройки", "SQL")
+Rel(deviceSvc, mqtt, "4. Публикует devices/{id}/config", "MQTT, retained")
+Rel(mqtt, device, "5. Доставляет настройки; при переподключении — повторно", "MQTT over TLS")
+Rel(device, mqtt, "6. Подтверждает devices/{id}/state", "MQTT over TLS")
+Rel(mqtt, deviceSvc, "7. Фактическое состояние", "MQTT")
+Rel(deviceSvc, eventBus, "8. device.state.changed", "Kafka")
+
+@enduml

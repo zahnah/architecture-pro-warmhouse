@@ -1,0 +1,28 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Component Diagram: Telemetry Service
+
+top to bottom direction
+
+!include C4_Component.puml
+
+Container(gateway, "API Gateway", "Go")
+Container(legacy, "Legacy Monolith", "Go")
+ContainerDb(telemetryDb, "Telemetry DB", "TimescaleDB")
+ContainerQueue(eventBus, "Event Bus", "Apache Kafka")
+
+Container_Boundary(telemetry, "Telemetry Service (Python)") {
+  Component(consumer, "Telemetry Consumer", "Kafka consumer group", "Нормализованные показания и смены статуса в сети от всех Device Service")
+  Component(api, "Telemetry gRPC API", "grpcio", "Последние значения, история показаний и доступности по устройству и дому")
+  Component(repo, "Readings Repository", "SQLAlchemy", "История хранится по политике хранения, в том числе после отвязки устройства")
+}
+
+Rel(eventBus, consumer, "Sub", "telemetry.reading, device.connectivity.changed")
+Rel(consumer, repo, "Сохранить")
+Rel(gateway, api, "gRPC")
+Rel(legacy, api, "gRPC", "Текущая температура")
+Rel(api, repo, "Читать")
+Rel(repo, telemetryDb, "SQL")
+
+@enduml

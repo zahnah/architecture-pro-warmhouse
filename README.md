@@ -100,17 +100,37 @@
 
 В этом задании вам нужно предоставить только диаграммы в модели C4. Мы не просим вас отдельно описывать получившиеся микросервисы и то, как вы определили взаимодействия между компонентами To-Be системы. Если вы правильно подготовите диаграммы C4, они и так это покажут.
 
+**Контекст (To-Be, опционально для обзора)**
+
+![Context diagram (To-Be)](schemas/diagrams/out/to_be/Context.svg)
+
 **Диаграмма контейнеров (Containers)**
 
-Добавьте диаграмму.
+![Container diagram (To-Be)](schemas/diagrams/out/to_be/Container.svg)
 
 **Диаграмма компонентов (Components)**
 
-Добавьте диаграмму для каждого из выделенных микросервисов.
+![Platform Service](schemas/diagrams/out/to_be/components/PlatformService.svg)
+
+![Device Service (на примере Heating Service)](schemas/diagrams/out/to_be/components/HeatingService.svg)
+
+![Telemetry Service](schemas/diagrams/out/to_be/components/TelemetryService.svg)
+
+![Automation Service](schemas/diagrams/out/to_be/components/AutomationService.svg)
 
 **Диаграмма кода (Code)**
 
-Добавьте одну диаграмму или несколько.
+![Code diagram: Heating Service](schemas/diagrams/out/to_be/Code.svg)
+
+**Динамические диаграммы (Dynamic)**
+
+![Изменение настроек устройства](schemas/diagrams/out/to_be/dynamic/DeviceSettings.svg)
+
+![Публикация и исполнение сценария](schemas/diagrams/out/to_be/dynamic/ScenarioDelivery.svg)
+
+![Отвязка устройства от дома](schemas/diagrams/out/to_be/dynamic/DeviceRemoval.svg)
+
+![Устройство в сети / не в сети](schemas/diagrams/out/to_be/dynamic/DeviceConnectivity.svg)
 
 # Задание 3. Разработка ER-диаграммы
 

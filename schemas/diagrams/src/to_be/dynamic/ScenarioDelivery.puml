@@ -1,0 +1,37 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Dynamic Diagram: публикация и исполнение сценария
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(user, "Пользователь")
+
+System_Boundary(warmhouse, "Экосистема «Тёплый дом»") {
+  Container(gateway, "API Gateway", "Go")
+  Container(automation, "Automation Service", "Go")
+  ContainerDb(automationDb, "Automation DB", "PostgreSQL")
+  ContainerQueue(mqtt, "MQTT Broker", "EMQX")
+  Container(deviceSvc, "Device Service", "по типу устройства")
+}
+
+Boundary(home, "Дом пользователя") {
+  System_Ext(hub, "Контроллер дома", "Исполняет сценарии локально")
+  System_Ext(devices, "Устройства", "Датчики и исполнители")
+}
+
+Rel(user, gateway, "1. Создаёт сценарий: «если t < 19 °C — включить отопление»", "HTTPS / REST")
+Rel(gateway, automation, "2. CreateScenario", "gRPC")
+Rel(automation, automationDb, "3. Проверяет устройства дома и сохраняет", "SQL")
+Rel(automation, mqtt, "4. Публикует homes/{homeId}/scenarios", "MQTT, retained")
+Rel(mqtt, hub, "5. Доставляет сценарии дома", "MQTT over TLS")
+Rel(devices, hub, "6. Показания датчиков", "Локальная сеть")
+Rel(hub, devices, "7. Условие выполнено — команда исполнителю", "Локальная сеть")
+Rel(hub, mqtt, "8. Отчёт homes/{homeId}/scenario-runs", "MQTT over TLS")
+Rel(devices, mqtt, "8. Новое состояние devices/{id}/state", "MQTT over TLS")
+Rel(mqtt, automation, "9. Журнал запусков", "MQTT")
+Rel(mqtt, deviceSvc, "9. Фактическое состояние устройства", "MQTT")
+
+@enduml
