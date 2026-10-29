@@ -26,6 +26,7 @@ class Thermostat <<Entity>> {
   -targetTemperature: Decimal
   -currentTemperature: Decimal
   -mode: HeatingMode
+  -relayOn: boolean
   -online: boolean
   -lastSeenAt: Instant
 }

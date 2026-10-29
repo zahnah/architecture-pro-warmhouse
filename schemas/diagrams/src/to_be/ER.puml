@@ -1,0 +1,226 @@
+@startuml
+title Warm House — ER Diagram (To-Be)
+
+hide circle
+hide empty members
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "Platform DB (PostgreSQL) — Platform Service" #F3F7FF {
+  entity "users" as users {
+    * id : uuid <<PK>>
+    --
+    * email : varchar <<UK>>
+    * phone : varchar <<UK>> (E.164)
+    * password_hash : varchar
+    * name : varchar
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "homes" as homes {
+    * id : uuid <<PK>>
+    --
+    * name : varchar
+    address : varchar
+    * timezone : varchar
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "home_members" as home_members {
+    * home_id : uuid <<PK, FK>>
+    * user_id : uuid <<PK, FK>>
+    --
+    * role : enum (owner, member)
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "rooms" as rooms {
+    * id : uuid <<PK>>
+    --
+    * home_id : uuid <<FK>>
+    * name : varchar
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "device_models" as device_models {
+    * id : uuid <<PK>>
+    --
+    * vendor : varchar
+    * name : varchar
+    * device_type : varchar (heating, lighting, gate, camera, ...)
+    * capabilities : jsonb
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "devices" as devices {
+    * id : uuid <<PK>>
+    --
+    * model_id : uuid <<FK>>
+    * serial_number : varchar <<UK>>
+    * pairing_code_hash : varchar
+    home_id : uuid <<FK>> (null — не привязано)
+    room_id : uuid <<FK>>
+    name : varchar
+    registered_at : timestamptz
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+}
+
+package "Telemetry DB (TimescaleDB) — Telemetry Service" #F8F1FA {
+  entity "readings" as readings <<hypertable>> {
+    * device_id : uuid <<PK>>
+    * metric : varchar <<PK>>
+    * time : timestamptz <<PK>>
+    --
+    * home_id : uuid
+    * value : double
+    * unit : varchar
+  }
+
+  entity "device_availability" as availability <<hypertable>> {
+    * device_id : uuid <<PK>>
+    * time : timestamptz <<PK>>
+    --
+    * home_id : uuid
+    * online : boolean
+  }
+}
+
+package "Devices DB (PostgreSQL) — Heating Service" #FFF6EE {
+  entity "thermostats" as thermostats {
+    * device_id : uuid <<PK>>
+    --
+    * home_id : uuid
+    * target_temperature : numeric
+    current_temperature : numeric
+    * mode : enum (off, manual, eco)
+    relay_on : boolean
+    * online : boolean
+    last_seen_at : timestamptz
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+}
+
+package "Automation DB (PostgreSQL) — Automation Service" #F1FAF1 {
+  entity "hubs" as hubs {
+    * home_id : uuid <<PK>>
+    --
+    * online : boolean
+    last_seen_at : timestamptz
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "home_devices" as home_devices {
+    * device_id : uuid <<PK>>
+    --
+    * home_id : uuid <<FK>>
+    * device_type : varchar
+    * online : boolean
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "scenarios" as scenarios {
+    * id : uuid <<PK>>
+    --
+    * home_id : uuid <<FK>>
+    * created_by : uuid
+    * name : varchar
+    * trigger : jsonb (время, событие, условие)
+    * enabled : boolean
+    disabled_reason : varchar
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "scenario_actions" as scenario_actions {
+    * id : uuid <<PK>>
+    --
+    * scenario_id : uuid <<FK>>
+    * device_id : uuid <<FK>>
+    * position : int
+    * action : varchar
+    params : jsonb
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+
+  entity "scenario_runs" as scenario_runs {
+    * id : uuid <<PK>>
+    --
+    * scenario_id : uuid <<FK>>
+    * home_id : uuid <<FK>>
+    * started_at : timestamptz
+    * status : enum (success, failed, skipped)
+    error : varchar
+    ..
+    * created_at : timestamptz
+    * updated_at : timestamptz
+    deleted_at : timestamptz
+  }
+}
+
+' Связи внутри одной БД (внешние ключи)
+users ||--o{ home_members
+homes ||--|{ home_members
+homes ||--o{ rooms
+homes |o--o{ devices
+rooms |o--o{ devices
+device_models ||--o{ devices
+
+hubs ||--o{ home_devices
+hubs ||--o{ scenarios
+scenarios ||--|{ scenario_actions
+home_devices ||--o{ scenario_actions
+scenarios ||--o{ scenario_runs
+hubs ||--o{ scenario_runs
+
+' Логические связи между БД разных сервисов (без FK, копия по событиям Kafka)
+devices ||.[#888888].o| thermostats : device.lifecycle
+devices ||.[#888888].o| home_devices : device.lifecycle
+homes ||.[#888888].o| hubs : homeId
+users ||.[#888888].o{ scenarios : created_by
+devices ||.[#888888].o{ readings : deviceId
+devices ||.[#888888].o{ availability : device.connectivity.changed
+
+legend bottom left
+  Сплошная линия — внешний ключ внутри одной БД.
+  Серая пунктирная — логическая связь между БД разных сервисов:
+  FK нет, данные копируются по событиям Kafka (ключ — deviceId).
+  Devices DB: у каждого Device Service своя схема, показан Heating Service.
+  deleted_at — мягкое удаление; UK уникальны среди записей с deleted_at = null.
+  Hypertable — только вставка, удаление по политике хранения, поэтому без created_at / updated_at / deleted_at.
+endlegend
+
+@enduml
