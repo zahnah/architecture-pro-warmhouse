@@ -1,5 +1,9 @@
 .DS_Store
 
+# Build output of the services in apps/
+apps/heating-service/target/
+__pycache__/
+
 # Local VS Code / Cursor config (copy from *.example)
 .vscode/*
 !.vscode/*.example

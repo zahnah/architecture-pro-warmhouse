@@ -16,7 +16,7 @@ The easiest way to start the application is to use Docker Compose:
 
 This script will:
 
-1. Build and start the PostgreSQL, temperature-api and application containers
+1. Build and start the PostgreSQL, Kafka, temperature-api, heating-service, telemetry-service and application containers
 2. Wait for the services to be ready
 3. Display information about how to access the API
 
@@ -47,15 +47,37 @@ go build -o smarthome
 ./smarthome
 ```
 
+## Services
+
+| Service | Language | Ports | Role |
+|---|---|---|---|
+| `app` (`smart_home/`) | Go | 8080 | Legacy REST API `/api/v1/sensors` |
+| `temperature-api` | Go | 8081 | Emulates thermostats: random temperature |
+| `heating-service` | Java 21, Spring Boot | 9090 gRPC, 8082 health | Thermostats: target, mode, relay, online status |
+| `telemetry-service` | Python 3.12 | 9091 gRPC, 8083 health | Readings and availability history |
+| `kafka` | Apache Kafka 4 (KRaft) | 9094 for the host | Event bus; `kafka-init` creates the topics |
+| `postgres` | PostgreSQL 16 + TimescaleDB | 5432 | Databases `smarthome`, `devices`, `telemetry`, one per service |
+
+Temperature sensors are handled by the microservices:
+
+- `POST` / `DELETE /api/v1/sensors` publish `DeviceRegistered` / `DeviceUnregistered` to the `device.lifecycle` topic; heating-service keeps its thermostats in sync.
+- heating-service polls temperature-api for every thermostat (`POLL_INTERVAL`, 1s) and publishes the readings; telemetry-service stores them.
+- `GET /api/v1/sensors` takes the temperature from telemetry-service over gRPC and falls back to temperature-api while there is no reading yet.
+- `PATCH /api/v1/sensors/:id/value` sets the thermostat target in heating-service over gRPC (`status` `off` / `inactive` switches heating off).
+
+Monolith settings: `KAFKA_BROKERS`, `TELEMETRY_GRPC_ADDR`, `HEATING_GRPC_ADDR`, `DEFAULT_HOME_ID`. If a variable is empty, the monolith keeps the legacy behaviour for that part.
+
+gRPC stubs (`smart_home/gen`, `heating-service/src/generated/java`, `telemetry-service/gen`) are generated from `schemas/api/proto` by `make precommit` in the repository root; do not edit them.
+
 ## API Testing
 
 A Postman collection is provided for testing the API. Import the `smarthome-api.postman_collection.json` file into Postman to get started.
 
-Call "Create Sensor" and then "Get All Sensors" several times: temperature sensors get a new random `value` from temperature-api on every call.
+Call "Create Sensor" and then "Get All Sensors" several times: temperature sensors get a new random `value` on every call (readings are refreshed once per second).
 
 ## E2E Tests
 
-`e2e/` contains Go tests built on [testcontainers-go](https://golang.testcontainers.org/). They build the temperature-api and smart_home images, start them with PostgreSQL (initialized by `smart_home/init.sql`) in an isolated network on random ports, and run the Postman scenario above. Tests run in a container with the Docker socket mounted, so only Docker is required:
+`e2e/` contains Go tests built on [testcontainers-go](https://golang.testcontainers.org/). They build the service images, start the whole stack (PostgreSQL with both init scripts, Kafka with the topics, temperature-api, heating-service, telemetry-service, smart_home) in an isolated network on random ports, run the Postman scenario above and check what has moved to the microservices. Tests run in a container with the Docker socket mounted, so only Docker is required:
 
 ```bash
 docker compose run --rm --build e2e

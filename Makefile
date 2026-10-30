@@ -14,5 +14,6 @@ up:
 precommit:
 	docker compose run --rm --build --user "$$(id -u):$$(id -g)" plantuml
 	docker compose run --rm --build --user "$$(id -u):$$(id -g)" protoc
+	docker compose run --rm --build --user "$$(id -u):$$(id -g)" codegen
 	$(APPS_COMPOSE) run --rm --build e2e
 	$(MAKE) build

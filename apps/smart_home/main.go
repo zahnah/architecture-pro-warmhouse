@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +33,35 @@ func main() {
 	temperatureService := services.NewTemperatureService(temperatureAPIURL)
 	log.Printf("Temperature service initialized with API URL: %s\n", temperatureAPIURL)
 
+	// Microservices that take over temperature sensors; an empty address keeps the legacy path
+	var telemetryClient *services.TelemetryClient
+	if addr := os.Getenv("TELEMETRY_GRPC_ADDR"); addr != "" {
+		telemetryClient, err = services.NewTelemetryClient(addr)
+		if err != nil {
+			log.Fatalf("Unable to create telemetry client: %v\n", err)
+		}
+		defer telemetryClient.Close()
+		log.Printf("Temperature readings are taken from Telemetry Service at %s\n", addr)
+	}
+
+	var heatingClient *services.HeatingClient
+	if addr := os.Getenv("HEATING_GRPC_ADDR"); addr != "" {
+		heatingClient, err = services.NewHeatingClient(addr)
+		if err != nil {
+			log.Fatalf("Unable to create heating client: %v\n", err)
+		}
+		defer heatingClient.Close()
+		log.Printf("Heating settings are sent to Heating Service at %s\n", addr)
+	}
+
+	var devicePublisher *services.DevicePublisher
+	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
+		homeID := getEnv("DEFAULT_HOME_ID", "00000000-0000-0000-0000-000000000001")
+		devicePublisher = services.NewDevicePublisher(strings.Split(brokers, ","), homeID)
+		defer devicePublisher.Close()
+		log.Printf("Sensors are published to device.lifecycle at %s for home %s\n", brokers, homeID)
+	}
+
 	// Initialize router
 	router := gin.Default()
 
@@ -46,7 +76,7 @@ func main() {
 	apiRoutes := router.Group("/api/v1")
 
 	// Register sensor routes
-	sensorHandler := handlers.NewSensorHandler(database, temperatureService)
+	sensorHandler := handlers.NewSensorHandler(database, temperatureService, telemetryClient, heatingClient, devicePublisher)
 	sensorHandler.RegisterRoutes(apiRoutes)
 
 	// Start server

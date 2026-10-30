@@ -46,6 +46,13 @@ func run(m *testing.M) int {
 	}
 	env = s
 
+	closeClients, err := connectServices(s)
+	if err != nil {
+		log.Printf("connect to microservices: %v", err)
+		return 1
+	}
+	defer closeClients()
+
 	return m.Run()
 }
 
@@ -120,18 +127,10 @@ func TestTemperatureAPI(t *testing.T) {
 }
 
 // TestSensorFlow repeats the reviewer's Postman scenario: Create Sensor, then Get All Sensors
-// must show a fresh temperature from temperature-api on every call.
+// must show a fresh temperature on every call. Readings reach the monolith from temperature-api
+// through Heating Service and Telemetry Service, so the calls are spaced by the device poll interval.
 func TestSensorFlow(t *testing.T) {
-	var created sensor
-	doJSON(t, http.MethodPost, env.AppURL+"/api/v1/sensors", map[string]string{
-		"name":     "Living Room Temperature",
-		"type":     "temperature",
-		"location": "Living Room",
-		"unit":     "°C",
-	}, http.StatusCreated, &created)
-	t.Cleanup(func() {
-		doJSON(t, http.MethodDelete, fmt.Sprintf("%s/api/v1/sensors/%d", env.AppURL, created.ID), nil, http.StatusOK, nil)
-	})
+	created := createSensor(t, "Living Room Temperature", "Living Room")
 
 	if created.ID <= 0 || created.Name != "Living Room Temperature" || created.Type != "temperature" ||
 		created.Location != "Living Room" || created.Unit != "°C" {
@@ -140,11 +139,15 @@ func TestSensorFlow(t *testing.T) {
 	if created.Status != "inactive" || created.Value != 0 {
 		t.Errorf("new sensor must be inactive with zero value, got %+v", created)
 	}
+	waitForReading(t, deviceID(created))
 
 	t.Run("Get All Sensors returns fresh temperature", func(t *testing.T) {
 		values := make(map[float64]struct{})
 		var lastUpdated time.Time
 		for i := 0; i < pollCount; i++ {
+			if i > 0 {
+				time.Sleep(2 * devicePollInterval)
+			}
 			var sensors []sensor
 			doJSON(t, http.MethodGet, env.AppURL+"/api/v1/sensors", nil, http.StatusOK, &sensors)
 
@@ -181,6 +184,28 @@ func TestSensorFlow(t *testing.T) {
 		}
 		assertTemperature(t, got.Value)
 	})
+}
+
+// createSensor runs "Create Sensor" and deletes the sensor when the test ends
+func createSensor(t *testing.T, name, location string) sensor {
+	t.Helper()
+	var created sensor
+	doJSON(t, http.MethodPost, env.AppURL+"/api/v1/sensors", map[string]string{
+		"name":     name,
+		"type":     "temperature",
+		"location": location,
+		"unit":     "°C",
+	}, http.StatusCreated, &created)
+	t.Cleanup(func() {
+		req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/sensors/%d", env.AppURL, created.ID), nil)
+		if err != nil {
+			return
+		}
+		if resp, err := client.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	})
+	return created
 }
 
 func findSensor(t *testing.T, sensors []sensor, id int) sensor {

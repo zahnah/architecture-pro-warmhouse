@@ -29,6 +29,15 @@ services:
     volumes:
       - ./schemas/api:/work
 
+  # Writes generated stubs into apps/, so it mounts the whole repository
+  codegen:
+    build:
+      context: ./schemas/api/tools/codegen
+    image: warmhouse/codegen
+    profiles: [tools]
+    volumes:
+      - .:/work
+
   swagger-ui:
     build:
       context: ./schemas/api

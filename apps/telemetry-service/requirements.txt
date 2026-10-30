@@ -1,0 +1,9 @@
+confluent-kafka==2.16.1
+googleapis-common-protos==1.76.0
+grpcio==1.85.0
+grpcio-health-checking==1.85.0
+grpcio-reflection==1.85.0
+# Not older than the protoc that generated gen/
+protobuf==7.36.2
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3

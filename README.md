@@ -190,7 +190,8 @@
   - Swagger UI — <http://localhost:8091>
   - AsyncAPI UI — <http://localhost:8092>
   - монолит smart_home — <http://localhost:8080>, temperature-api — <http://localhost:8081> (см. задание 5)
-- `make precommit` — всё, что нужно перед коммитом: экспорт диаграмм PlantUML в `schemas/diagrams/out/`, компиляция `.proto` и генерация `schemas/api/swagger/`, e2e-тесты [apps/e2e](apps/e2e) (testcontainers), сборка образов. Если тесты падают, падает и `make precommit`.
+  - heating-service — gRPC `localhost:9090`, telemetry-service — gRPC `localhost:9091`, Kafka — `localhost:9094` (см. задание 6)
+- `make precommit` — всё, что нужно перед коммитом: экспорт диаграмм PlantUML в `schemas/diagrams/out/`, компиляция `.proto` и генерация `schemas/api/swagger/`, генерация gRPC-кода сервисов в `apps/`, e2e-тесты [apps/e2e](apps/e2e) (testcontainers), сборка образов. Если тесты падают, падает и `make precommit`.
 
 # Задание 5. Работа с docker и docker-compose
 
@@ -265,3 +266,52 @@ Locations - название комнаты, sensorId - идентификато
 2. Обеспечьте взаимодействие между микросервисами и монолитом (при желании с помощью брокера сообщений), чтобы постепенно перенести функциональность из монолита в микросервисы. 
 
 В результате у вас должны быть созданы Dockerfiles и docker-compose для запуска микросервисов. 
+
+**Решение:**
+
+![Container diagram (MVP)](schemas/diagrams/out/mvp/Container.svg)
+
+Два микросервиса по контрактам задания 4 работают рядом с монолитом и забирают у него температурные датчики. REST API монолита `/api/v1/sensors` не меняется: Postman-коллекция и сценарий ревьюера из задания 5 работают как раньше.
+
+| Сервис | Язык | Что делает | Контракт |
+|---|---|---|---|
+| [heating-service](apps/heating-service) | Java 21, Spring Boot 4, grpc-java | Device Service типа `heating`: ведёт термостаты по `device.lifecycle`, принимает целевую температуру и режим, опрашивает устройство, публикует показания, смену состояния и статус в сети | [heating_service.proto](schemas/api/proto/warmhouse/heating/v1/heating_service.proto) |
+| [telemetry-service](apps/telemetry-service) | Python 3.12, grpcio | Сохраняет показания и историю доступности из Kafka в hypertables TimescaleDB, отдаёт последние значения, ряды с агрегацией `time_bucket` и историю доступности | [telemetry_service.proto](schemas/api/proto/warmhouse/telemetry/v1/telemetry_service.proto) |
+
+Классы сервисов повторяют [Code-диаграмму](schemas/diagrams/out/to_be/Code.svg): `Thermostat` — сущность с правилами (диапазон 5..35 °C, выключенный термостат при новой уставке переходит в `MANUAL`, реле греет, пока в комнате холоднее цели, в `ECO` цель на 2 °C ниже), `HeatingService` — сценарии, `ThermostatRepository`, `DeviceAdapter`, `DomainEventPublisher` — порты к БД, устройству и шине.
+
+**Взаимодействие** — так же, как в задании 4:
+
+- **Kafka, Protobuf-события** из [device_events.proto](schemas/api/proto/warmhouse/events/v1/device_events.proto). Ключ записи — `deviceId`, тип — в заголовке `eventType`. Топики и их настройки создаёт `kafka-init` по [event-bus.yaml](schemas/api/asyncapi/event-bus.yaml), `device.lifecycle` — compacted. Потребители обрабатывают события идемпотентно по `event_id`.
+- **gRPC** между монолитом и сервисами. Код клиентов и серверов генерируется из `.proto` в `make precommit` (образ [codegen](schemas/api/tools/codegen)) и лежит в репозитории: Go — [apps/smart_home/gen](apps/smart_home/gen), Java — `apps/heating-service/src/generated/java`, Python — `apps/telemetry-service/gen`.
+
+**Что перенесено из монолита:**
+
+| Сценарий монолита | Было | Стало |
+|---|---|---|
+| `POST` / `DELETE /api/v1/sensors` | Только запись в `sensors` | Плюс `DeviceRegistered` / `DeviceUnregistered` в `device.lifecycle`, Heating Service заводит и удаляет термостат |
+| `GET /api/v1/sensors`, `GET /api/v1/sensors/:id` | Синхронный запрос в temperature-api на каждый датчик | `GetLatestReadings` из Telemetry Service; temperature-api — запасной путь, пока у Telemetry нет показаний или он недоступен |
+| `PATCH /api/v1/sensors/:id/value` | Запись `value` и `status` в `sensors` | `SetTarget` в Heating Service, при `status` = `off` / `inactive` ещё `SetMode(OFF)`; значение по-прежнему пишется в `sensors` для старых клиентов. Неверная уставка — 400, термостат ещё не заведён — 409, сервис недоступен — 502 / 504 |
+
+**Соглашения переходного периода:**
+
+- `deviceId` — id датчика монолита строкой, `homeId` — один дом `DEFAULT_HOME_ID`, датчик `type=temperature` публикуется как устройство `type=heating`. Монолит здесь замещает Platform Service, которого в MVP нет.
+- MQTT-брокера и реальных устройств нет: [temperature-api](apps/temperature-api) играет роль термостатов, Heating Service опрашивает его раз в `POLL_INTERVAL` (1 с). Поэтому в «Get All Sensors» значение меняется не чаще раза в секунду.
+- Публикация в Kafka из монолита идёт после записи в БД без outbox: если Kafka недоступна, ошибка пишется в лог, а датчик продолжает работать через temperature-api.
+- Локально один контейнер PostgreSQL (образ TimescaleDB) и один Kafka. У каждого сервиса своя база и свой пользователь: `smarthome` — монолит, `devices` — `heating`, `telemetry` — `telemetry`. Подключиться к чужой базе нельзя ([init-services.sql](apps/postgres/init-services.sql)), поэтому вынести базы на отдельные серверы можно сменой строки подключения.
+
+**Запуск и проверка:**
+
+- `make build && make up` из корня — поднимает и [apps/docker-compose.yml](apps/docker-compose.yml): postgres, kafka, kafka-init, temperature-api, heating-service, telemetry-service, монолит.
+- Postman: «Create Sensor», несколько раз «Get All Sensors» (температура меняется), «Update Sensor Value», «Delete Sensor».
+- Состояние в микросервисах (gRPC reflection включена):
+
+```bash
+GRPCURL="docker run --rm --network apps_smarthome-network fullstorydev/grpcurl -plaintext"
+$GRPCURL -d '{"device_id":"1"}' heating-service:9090 warmhouse.heating.v1.HeatingService/GetThermostat
+$GRPCURL -d '{"device_id":"1"}' telemetry-service:9091 warmhouse.telemetry.v1.TelemetryService/GetLatestReadings
+```
+
+- [apps/e2e](apps/e2e) поднимает весь стек в testcontainers. `TestSensorFlow` — сценарий ревьюера, `TestMigrationFlow` проверяет перенос: термостат появляется в Heating после «Create Sensor», монолит отдаёт показание, которое есть в Telemetry, PATCH меняет уставку и режим в Heating, после DELETE термостат пропадает, а история показаний остаётся.
+
+**Что остаётся на следующие шаги:** Platform Service вместо публикации из монолита, EMQX и адаптер MQTT вместо опроса temperature-api, outbox для событий монолита, API Gateway и `/api/v2`, затем вывод `/api/v1/sensors` из эксплуатации.
