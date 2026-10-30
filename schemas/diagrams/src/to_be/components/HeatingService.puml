@@ -1,0 +1,45 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Component Diagram: Device Service (на примере Heating Service)
+
+top to bottom direction
+
+!include C4_Component.puml
+
+Container(gateway, "API Gateway", "Go")
+ContainerDb(devicesDb, "Devices DB", "PostgreSQL", "Схема heating")
+ContainerQueue(mqtt, "MQTT Broker", "EMQX")
+ContainerQueue(eventBus, "Event Bus", "Apache Kafka")
+
+Container_Boundary(heating, "Heating Service (Java, Spring Boot)") {
+  Component(api, "Heating gRPC API", "grpc-java", "Состояние, статус в сети, целевая температура, режим")
+  Component(domain, "Heating Logic", "Service", "Проверяет новые настройки, хранит желаемое и фактическое состояние термостата, online и lastSeen")
+  Component(repo, "Thermostat Repository", "JPA")
+  Component(adapter, "Device Adapter", "MQTT", "Знает формат устройств своего типа: публикует и очищает желаемые настройки, нормализует сырые данные и статус")
+  Component(events, "Event Handler", "Kafka consumer/producer", "Принимает и публикует доменные события; при первом запуске читает device.lifecycle с начала")
+}
+
+Rel(gateway, api, "gRPC", "Настройки и статус")
+Rel(api, domain, "")
+Rel(domain, repo, "")
+Rel(repo, devicesDb, "SQL")
+
+Rel(domain, adapter, "Желаемые настройки; очистить при отвязке")
+Rel(adapter, domain, "Нормализованные показания, фактическое состояние, online / offline")
+Rel(adapter, mqtt, "Pub", "devices/{id}/config (retained; пустое сообщение при отвязке)")
+Rel(mqtt, adapter, "Sub", "devices/{id}/telemetry, state, status")
+
+Rel(events, domain, "Устройство подключено / отвязано")
+Rel(domain, events, "Показание, смена состояния, смена статуса в сети")
+Rel(eventBus, events, "Sub", "device.lifecycle")
+Rel(events, eventBus, "Pub", "telemetry.reading, device.state.changed, device.connectivity.changed")
+
+note bottom of heating
+  Пример Device Service. Сервисы других типов устройств
+  устроены так же, но пишутся на своём ООП-языке.
+  Новый тип устройства = новый сервис по этому шаблону
+  + модель в каталоге; другие сервисы не меняются.
+end note
+
+@enduml

@@ -1,0 +1,464 @@
+syntax = "proto3";
+
+package warmhouse.platform.v1;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/zahnah/architecture-pro-warmhouse/gen/go/warmhouse/platform/v1;platformv1";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Platform Service API"
+    version: "1.0.0"
+    license: {name: "MIT" url: "https://opensource.org/licenses/MIT"}
+    description: "Пользователи и дома, каталог моделей устройств, подключение и отвязка устройств. AddDevice и RemoveDevice публикуют DeviceRegistered / DeviceUnregistered в Kafka-топик device.lifecycle (AsyncAPI event-bus.yaml)."
+  }
+  host: "api.warmhouse.example"
+  schemes: HTTPS
+  consumes: "application/json"
+  produces: "application/json"
+  security_definitions: {
+    security: {
+      key: "bearer"
+      value: {
+        type: TYPE_API_KEY
+        in: IN_HEADER
+        name: "Authorization"
+        description: "JWT: Bearer <token>"
+      }
+    }
+  }
+  security: {
+    security_requirement: {
+      key: "bearer"
+      value: {}
+    }
+  }
+  responses: {
+    key: "401"
+    value: {
+      description: "Нет или неверный токен"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+  responses: {
+    key: "403"
+    value: {
+      description: "Нет прав на ресурс"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+  responses: {
+    key: "404"
+    value: {
+      description: "Ресурс не найден"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+};
+
+// Регистрация, вход, дома, члены семьи и комнаты.
+service IdentityService {
+  // Регистрация пользователя
+  rpc RegisterUser(RegisterUserRequest) returns (User) {
+    option (google.api.http) = {
+      post: "/api/v2/auth/register"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: {}
+    };
+  }
+
+  // Вход по email или телефону
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/api/v2/auth/login"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      security: {}
+    };
+  }
+
+  // Текущий пользователь
+  rpc GetCurrentUser(google.protobuf.Empty) returns (User) {
+    option (google.api.http) = {get: "/api/v2/me"};
+  }
+
+  // Дома, в которых пользователь — владелец или член семьи
+  rpc ListHomes(google.protobuf.Empty) returns (ListHomesResponse) {
+    option (google.api.http) = {get: "/api/v2/homes"};
+  }
+
+  // Создать дом; создатель становится владельцем
+  rpc CreateHome(CreateHomeRequest) returns (Home) {
+    option (google.api.http) = {
+      post: "/api/v2/homes"
+      body: "*"
+    };
+  }
+
+  // Дом
+  rpc GetHome(GetHomeRequest) returns (Home) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}"};
+  }
+
+  // Изменить дом (только владелец)
+  rpc UpdateHome(UpdateHomeRequest) returns (Home) {
+    option (google.api.http) = {
+      patch: "/api/v2/homes/{home_id}"
+      body: "*"
+    };
+  }
+
+  // Удалить дом (только владелец); все устройства дома отвязываются
+  rpc DeleteHome(DeleteHomeRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/v2/homes/{home_id}"};
+  }
+
+  // Члены семьи
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/members"};
+  }
+
+  // Добавить члена семьи по телефону (только владелец)
+  rpc AddMember(AddMemberRequest) returns (HomeMember) {
+    option (google.api.http) = {
+      post: "/api/v2/homes/{home_id}/members"
+      body: "*"
+    };
+  }
+
+  // Удалить члена семьи (только владелец)
+  rpc RemoveMember(RemoveMemberRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/v2/homes/{home_id}/members/{user_id}"};
+  }
+
+  // Комнаты дома
+  rpc ListRooms(ListRoomsRequest) returns (ListRoomsResponse) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/rooms"};
+  }
+
+  // Добавить комнату
+  rpc CreateRoom(CreateRoomRequest) returns (Room) {
+    option (google.api.http) = {
+      post: "/api/v2/homes/{home_id}/rooms"
+      body: "*"
+    };
+  }
+
+  // Удалить комнату; устройства остаются в доме без комнаты
+  rpc DeleteRoom(DeleteRoomRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/v2/homes/{home_id}/rooms/{room_id}"};
+  }
+}
+
+// Каталог моделей устройств; ведёт сотрудник компании.
+service CatalogService {
+  // Каталог моделей устройств
+  rpc ListDeviceModels(ListDeviceModelsRequest) returns (ListDeviceModelsResponse) {
+    option (google.api.http) = {get: "/api/v2/device-models"};
+  }
+
+  // Модель устройства
+  rpc GetDeviceModel(GetDeviceModelRequest) returns (DeviceModel) {
+    option (google.api.http) = {get: "/api/v2/device-models/{model_id}"};
+  }
+
+  // Добавить модель в каталог (роль operator)
+  rpc CreateDeviceModel(CreateDeviceModelRequest) returns (DeviceModel) {
+    option (google.api.http) = {
+      post: "/api/v2/device-models"
+      body: "*"
+    };
+  }
+}
+
+// Подключение устройств к дому и отвязка.
+service DeviceOnboardingService {
+  // Устройства дома
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/devices"};
+  }
+
+  // Подключить устройство к дому по серийному номеру и коду.
+  //
+  // Проверяет код, привязывает устройство к дому, выдаёт в EMQX учётные данные на devices/{deviceId}/*
+  // и публикует DeviceRegistered в device.lifecycle. Учётные данные MQTT возвращаются один раз —
+  // их передаёт устройству мобильное приложение.
+  rpc AddDevice(AddDeviceRequest) returns (AddDeviceResponse) {
+    option (google.api.http) = {
+      post: "/api/v2/homes/{home_id}/devices"
+      body: "*"
+    };
+  }
+
+  // Устройство дома
+  rpc GetDevice(GetDeviceRequest) returns (Device) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/devices/{device_id}"};
+  }
+
+  // Переименовать устройство или перенести в другую комнату
+  rpc UpdateDevice(UpdateDeviceRequest) returns (Device) {
+    option (google.api.http) = {
+      patch: "/api/v2/homes/{home_id}/devices/{device_id}"
+      body: "*"
+    };
+  }
+
+  // Отвязать устройство от дома.
+  //
+  // Отзывает учётные данные MQTT, разрывает сессию устройства в EMQX и публикует
+  // DeviceUnregistered в device.lifecycle. История телеметрии сохраняется.
+  rpc RemoveDevice(RemoveDeviceRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/v2/homes/{home_id}/devices/{device_id}"};
+  }
+}
+
+// Роль пользователя в доме
+enum MemberRole {
+  MEMBER_ROLE_UNSPECIFIED = 0;
+  MEMBER_ROLE_OWNER = 1;
+  MEMBER_ROLE_MEMBER = 2;
+}
+
+message User {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string email = 2;
+  // Телефон в формате E.164
+  string phone = 3 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+    pattern: "^\\+[1-9][0-9]{7,14}$"
+    example: "\"+79991234567\""
+  }];
+  string name = 4;
+  google.protobuf.Timestamp created_at = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message RegisterUserRequest {
+  string email = 1 [(google.api.field_behavior) = REQUIRED];
+  // Телефон в формате E.164
+  string phone = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      pattern: "^\\+[1-9][0-9]{7,14}$"
+      example: "\"+79991234567\""
+    }
+  ];
+  string name = 3 [(google.api.field_behavior) = REQUIRED];
+  string password = 4 [
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {min_length: 8}
+  ];
+}
+
+message LoginRequest {
+  // Email или телефон
+  string login = 1 [(google.api.field_behavior) = REQUIRED];
+  string password = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message LoginResponse {
+  string access_token = 1;
+  // Время жизни токена, секунды
+  int32 expires_in = 2;
+}
+
+message Home {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string name = 2;
+  string address = 3;
+  // Часовой пояс IANA; нужен контроллеру для сценариев по расписанию
+  string timezone = 4 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"Europe/Moscow\""}];
+  // Роль текущего пользователя в доме
+  MemberRole role = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  google.protobuf.Timestamp created_at = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+  google.protobuf.Timestamp updated_at = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message ListHomesResponse {
+  repeated Home items = 1;
+}
+
+message CreateHomeRequest {
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+  string address = 2;
+  // Часовой пояс IANA
+  string timezone = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+message GetHomeRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message UpdateHomeRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  google.protobuf.StringValue name = 2;
+  google.protobuf.StringValue address = 3;
+  google.protobuf.StringValue timezone = 4;
+}
+
+message DeleteHomeRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message HomeMember {
+  string user_id = 1;
+  string name = 2;
+  string phone = 3;
+  MemberRole role = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ListMembersRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListMembersResponse {
+  repeated HomeMember items = 1;
+}
+
+message AddMemberRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  // Телефон зарегистрированного пользователя в формате E.164
+  string phone = 2 [(google.api.field_behavior) = REQUIRED];
+  // По умолчанию MEMBER_ROLE_MEMBER
+  MemberRole role = 3;
+}
+
+message RemoveMemberRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string user_id = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message Room {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string home_id = 2;
+  string name = 3;
+}
+
+message ListRoomsRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListRoomsResponse {
+  repeated Room items = 1;
+}
+
+message CreateRoomRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string name = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"Гостиная\""}
+  ];
+}
+
+message DeleteRoomRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string room_id = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message DeviceModel {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string vendor = 2;
+  string name = 3;
+  // Тип устройства (heating, lighting, gate, ...); определяет Device Service, который им управляет
+  string device_type = 4 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"heating\""}];
+  // Что умеет модель; формат задаёт Device Service типа.
+  // Пример для термостата: {"targetTemperature": {"min": 5, "max": 35, "step": 0.5}, "modes": ["off", "manual", "eco"]}
+  google.protobuf.Struct capabilities = 5;
+}
+
+message ListDeviceModelsRequest {
+  // Фильтр по типу устройства
+  string device_type = 1;
+}
+
+message ListDeviceModelsResponse {
+  repeated DeviceModel items = 1;
+}
+
+message GetDeviceModelRequest {
+  string model_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message CreateDeviceModelRequest {
+  string vendor = 1 [(google.api.field_behavior) = REQUIRED];
+  string name = 2 [(google.api.field_behavior) = REQUIRED];
+  string device_type = 3 [(google.api.field_behavior) = REQUIRED];
+  google.protobuf.Struct capabilities = 4 [(google.api.field_behavior) = REQUIRED];
+}
+
+message Device {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string home_id = 2;
+  // Пусто — устройство не в комнате
+  string room_id = 3;
+  string model_id = 4;
+  string device_type = 5;
+  string serial_number = 6;
+  string name = 7;
+  google.protobuf.Timestamp registered_at = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message ListDevicesRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  // Фильтр по комнате
+  string room_id = 2;
+  // Фильтр по типу устройства
+  string device_type = 3;
+}
+
+message ListDevicesResponse {
+  repeated Device items = 1;
+}
+
+message AddDeviceRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string serial_number = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"WH-T1-000123\""}
+  ];
+  // Код с наклейки или из коробки устройства
+  string pairing_code = 3 [(google.api.field_behavior) = REQUIRED];
+  string name = 4;
+  string room_id = 5;
+}
+
+// Учётные данные устройства в EMQX; права только на devices/{deviceId}/*
+message MqttCredentials {
+  string host = 1 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"mqtt.warmhouse.example\""}];
+  int32 port = 2 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "8883"}];
+  // Совпадает с deviceId
+  string username = 3;
+  string password = 4;
+}
+
+message AddDeviceResponse {
+  Device device = 1;
+  MqttCredentials mqtt = 2;
+}
+
+message GetDeviceRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string device_id = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message UpdateDeviceRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string device_id = 2 [(google.api.field_behavior) = REQUIRED];
+  google.protobuf.StringValue name = 3;
+  // Пустая строка — убрать из комнаты
+  google.protobuf.StringValue room_id = 4;
+}
+
+message RemoveDeviceRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string device_id = 2 [(google.api.field_behavior) = REQUIRED];
+}

@@ -1,0 +1,82 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Container Diagram (To-Be)
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(user, "Пользователь", "Подключает и отвязывает устройства, управляет ими, настраивает сценарии")
+Person(operator, "Сотрудник компании", "Ведёт каталог устройств")
+
+Boundary(home, "Дом пользователя") {
+  System_Ext(hub, "Контроллер дома", "Хаб из комплекта: хранит сценарии дома и исполняет их локально, в том числе без интернета")
+  System_Ext(devices, "Устройства", "Модули компании и партнёров")
+}
+
+System_Boundary(warmhouse, "Экосистема «Тёплый дом»") {
+
+  Container(gateway, "API Gateway", "Go, grpc-gateway", "Единая точка входа, проверка токена, REST → gRPC, маршрут по типу устройства")
+
+  Container_Boundary(platformBc, "Пользователи и дома, каталог, подключение устройств") {
+    Container(platform, "Platform Service", "Go", "Аккаунты и дома, каталог моделей, подключение и отвязка устройства")
+    ContainerDb(platformDb, "Platform DB", "PostgreSQL")
+  }
+
+  Container_Boundary(deviceBc, "Управление устройствами") {
+    Container(deviceSvc, "Device Service ×N", "свой ООП-язык у каждого", "Отдельный сервис на каждый тип устройства (отопление, освещение, ...). Новый тип — новый сервис по общему контракту")
+    ContainerDb(devicesDb, "Devices DB", "PostgreSQL", "Желаемые и фактические настройки, статус в сети; своя схема у каждого сервиса")
+  }
+
+  Container_Boundary(automationBc, "Сценарии") {
+    Container(automation, "Automation Service", "Go", "Создание сценариев, проверка по устройствам дома, доставка на контроллер дома, статус контроллера, журнал запусков")
+    ContainerDb(automationDb, "Automation DB", "PostgreSQL")
+  }
+
+  Container_Boundary(telemetryBc, "Телеметрия") {
+    Container(telemetry, "Telemetry Service", "Python", "Приём и хранение показаний и истории доступности")
+    ContainerDb(telemetryDb, "Telemetry DB", "TimescaleDB")
+  }
+
+  ContainerQueue(mqtt, "MQTT Broker", "EMQX", "Единственная точка подключения устройств и контроллеров из интернета; Last Will при обрыве связи")
+  ContainerQueue(eventBus, "Event Bus", "Apache Kafka", "Доменные события; ключ — deviceId; device.lifecycle — compacted-топик")
+
+  Container(legacy, "Legacy Monolith", "Go", "Текущий API отопления; выводится постепенно")
+}
+
+Rel(user, gateway, "HTTPS / REST")
+Rel(operator, gateway, "HTTPS / REST")
+
+Rel(gateway, platform, "gRPC", "Подключение по коду, отвязка устройства")
+Rel(gateway, deviceSvc, "gRPC", "Настройки и статус устройства")
+Rel(gateway, automation, "gRPC", "Сценарии")
+Rel(gateway, telemetry, "gRPC", "Показания")
+Rel(gateway, legacy, "REST", "/api/v1/sensors на период миграции")
+
+Rel(platform, platformDb, "SQL")
+Rel(deviceSvc, devicesDb, "SQL")
+Rel(automation, automationDb, "SQL")
+Rel(telemetry, telemetryDb, "SQL")
+
+Rel(platform, eventBus, "Pub", "device.lifecycle: DeviceRegistered, DeviceUnregistered")
+Rel(platform, mqtt, "API", "Выдача и отзыв учётных данных, разрыв сессии")
+
+Rel(deviceSvc, mqtt, "MQTT", "Pub: devices/{id}/config (retained)")
+Rel(mqtt, deviceSvc, "MQTT", "Sub: devices/{id}/telemetry, state, status")
+Rel(eventBus, deviceSvc, "Kafka", "device.lifecycle")
+Rel(deviceSvc, eventBus, "Kafka", "telemetry.reading, device.state.changed, device.connectivity.changed")
+
+Rel(automation, mqtt, "MQTT", "Pub: homes/{homeId}/scenarios (retained)")
+Rel(mqtt, automation, "MQTT", "Sub: homes/{homeId}/scenario-runs, hub/status")
+Rel(eventBus, automation, "Kafka", "device.lifecycle, device.connectivity.changed")
+
+Rel(eventBus, telemetry, "Kafka", "telemetry.reading, device.connectivity.changed")
+Rel(legacy, telemetry, "gRPC", "Текущая температура")
+
+Rel(user, devices, "Устанавливает дома и включает")
+BiRel(mqtt, devices, "Устройству: config; от устройства: state, telemetry, status (online / offline по Last Will)", "MQTT over TLS")
+BiRel(mqtt, hub, "Хабу: scenarios; от хаба: scenario-runs, hub/status (Last Will)", "MQTT over TLS")
+Rel_D(hub, devices, "Команды сценариев", "Локальная сеть")
+
+@enduml

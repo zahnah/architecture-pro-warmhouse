@@ -1,0 +1,252 @@
+syntax = "proto3";
+
+package warmhouse.automation.v1;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/zahnah/architecture-pro-warmhouse/gen/go/warmhouse/automation/v1;automationv1";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Automation Service API"
+    version: "1.0.0"
+    license: {name: "MIT" url: "https://opensource.org/licenses/MIT"}
+    description: "Сценарии автоматизации дома, журнал запусков и статус контроллера дома. Сценарии исполняет контроллер дома локально: после любого изменения сервис публикует актуальный набор включённых сценариев в retained-топик homes/{homeId}/scenarios, запуски приходят из homes/{homeId}/scenario-runs (AsyncAPI mqtt.yaml)."
+  }
+  host: "api.warmhouse.example"
+  schemes: HTTPS
+  consumes: "application/json"
+  produces: "application/json"
+  security_definitions: {
+    security: {
+      key: "bearer"
+      value: {
+        type: TYPE_API_KEY
+        in: IN_HEADER
+        name: "Authorization"
+        description: "JWT: Bearer <token>"
+      }
+    }
+  }
+  security: {
+    security_requirement: {
+      key: "bearer"
+      value: {}
+    }
+  }
+  responses: {
+    key: "401"
+    value: {
+      description: "Нет или неверный токен"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+  responses: {
+    key: "403"
+    value: {
+      description: "Пользователь не член этого дома"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+  responses: {
+    key: "404"
+    value: {
+      description: "Сценарий или дом не найден"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+};
+
+// Сценарии дома и статус контроллера.
+service AutomationService {
+  // Сценарии дома
+  rpc ListScenarios(ListScenariosRequest) returns (ListScenariosResponse) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/scenarios"};
+  }
+
+  // Создать сценарий.
+  //
+  // Проверяет, что устройства условия и действий привязаны к дому и поддерживают действие
+  // (иначе FAILED_PRECONDITION / HTTP 400). После сохранения набор сценариев дома публикуется на контроллер.
+  rpc CreateScenario(CreateScenarioRequest) returns (Scenario) {
+    option (google.api.http) = {
+      post: "/api/v2/homes/{home_id}/scenarios"
+      body: "*"
+    };
+  }
+
+  // Сценарий
+  rpc GetScenario(GetScenarioRequest) returns (Scenario) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/scenarios/{scenario_id}"};
+  }
+
+  // Изменить сценарий, включить или выключить его.
+  //
+  // Сценарий, отключённый из-за отвязки устройства, можно включить только после замены этого устройства.
+  rpc UpdateScenario(UpdateScenarioRequest) returns (Scenario) {
+    option (google.api.http) = {
+      put: "/api/v2/homes/{home_id}/scenarios/{scenario_id}"
+      body: "*"
+    };
+  }
+
+  // Удалить сценарий
+  rpc DeleteScenario(DeleteScenarioRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/v2/homes/{home_id}/scenarios/{scenario_id}"};
+  }
+
+  // Журнал запусков сценария, новые сначала
+  rpc ListScenarioRuns(ListScenarioRunsRequest) returns (ListScenarioRunsResponse) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/scenarios/{scenario_id}/runs"};
+  }
+
+  // Статус контроллера дома
+  rpc GetHubStatus(GetHubStatusRequest) returns (HubStatus) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/hub"};
+  }
+}
+
+// Запуск по расписанию
+message ScheduleTrigger {
+  // Cron-выражение в часовом поясе дома
+  string cron = 1 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"0 7 * * 1-5\""}];
+}
+
+enum ComparisonOperator {
+  COMPARISON_OPERATOR_UNSPECIFIED = 0;
+  COMPARISON_OPERATOR_LT = 1;
+  COMPARISON_OPERATOR_LTE = 2;
+  COMPARISON_OPERATOR_EQ = 3;
+  COMPARISON_OPERATOR_GTE = 4;
+  COMPARISON_OPERATOR_GT = 5;
+}
+
+// Запуск по показанию устройства, например «температура ниже 19 °C»
+message ConditionTrigger {
+  string device_id = 1;
+  string metric = 2 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"temperature\""}];
+  ComparisonOperator operator = 3;
+  double value = 4;
+}
+
+// Задаётся ровно одно из полей
+message Trigger {
+  oneof kind {
+    ScheduleTrigger schedule = 1;
+    ConditionTrigger condition = 2;
+  }
+}
+
+message Action {
+  string device_id = 1;
+  // Действие из capabilities модели устройства
+  string action = 2 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "\"setTarget\""}];
+  google.protobuf.Struct params = 3 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {example: "{\"temperature\": 22}"}];
+}
+
+message Scenario {
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string home_id = 2;
+  string name = 3;
+  bool enabled = 4;
+  // Почему сценарий выключен системой, например DEVICE_UNREGISTERED
+  string disabled_reason = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  Trigger trigger = 6;
+  // Выполняются по порядку
+  repeated Action actions = 7;
+  string created_by = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+  google.protobuf.Timestamp created_at = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+  google.protobuf.Timestamp updated_at = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message ListScenariosRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  // Фильтр по признаку «включён»
+  google.protobuf.BoolValue enabled = 2;
+}
+
+message ListScenariosResponse {
+  repeated Scenario items = 1;
+}
+
+message CreateScenarioRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string name = 2 [(google.api.field_behavior) = REQUIRED];
+  // По умолчанию true
+  google.protobuf.BoolValue enabled = 3;
+  Trigger trigger = 4 [(google.api.field_behavior) = REQUIRED];
+  repeated Action actions = 5 [
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {min_items: 1}
+  ];
+}
+
+message GetScenarioRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string scenario_id = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message UpdateScenarioRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string scenario_id = 2 [(google.api.field_behavior) = REQUIRED];
+  string name = 3 [(google.api.field_behavior) = REQUIRED];
+  bool enabled = 4 [(google.api.field_behavior) = REQUIRED];
+  Trigger trigger = 5 [(google.api.field_behavior) = REQUIRED];
+  repeated Action actions = 6 [
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {min_items: 1}
+  ];
+}
+
+message DeleteScenarioRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string scenario_id = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  RUN_STATUS_SUCCESS = 1;
+  RUN_STATUS_FAILED = 2;
+  RUN_STATUS_SKIPPED = 3;
+}
+
+message ScenarioRun {
+  string id = 1;
+  string scenario_id = 2;
+  google.protobuf.Timestamp started_at = 3;
+  RunStatus status = 4;
+  string error = 5;
+}
+
+message ListScenarioRunsRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string scenario_id = 2 [(google.api.field_behavior) = REQUIRED];
+  google.protobuf.Timestamp from = 3;
+  google.protobuf.Timestamp to = 4;
+  // По умолчанию 100, не больше 500
+  int32 limit = 5 [(grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+    minimum: 1
+    maximum: 500
+  }];
+}
+
+message ListScenarioRunsResponse {
+  repeated ScenarioRun items = 1;
+}
+
+message GetHubStatusRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message HubStatus {
+  string home_id = 1;
+  // По homes/{homeId}/hub/status (Last Will)
+  bool online = 2;
+  google.protobuf.Timestamp last_seen_at = 3;
+}

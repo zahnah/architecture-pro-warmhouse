@@ -1,0 +1,21 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Context Diagram (As-Is)
+
+top to bottom direction
+
+!include C4_Context.puml
+
+Person(homeowner, "Владелец дома", "Управляет отоплением и смотрит температуру через REST API")
+Person(installer, "Монтажник", "Выездное подключение модулей отопления к системе")
+
+System(warmhouse, "Система «Тёплый дом» (монолит)", "Go-приложение: REST API, бизнес-логика, PostgreSQL")
+
+System_Ext(field, "Модули отопления и датчики (temperature-api)", "HTTP temperature-api — канал монолита к телеметрии модулей в домах")
+
+Rel(homeowner, warmhouse, "HTTPS / REST", "Управление отоплением, просмотр температуры")
+Rel(installer, field, "Монтаж и первичная настройка")
+Rel(warmhouse, field, "Синхронный HTTP", "Опрос температуры")
+
+@enduml

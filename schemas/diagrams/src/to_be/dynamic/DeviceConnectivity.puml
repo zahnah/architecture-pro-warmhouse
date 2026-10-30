@@ -1,0 +1,35 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Dynamic Diagram: устройство в сети / не в сети
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(user, "Пользователь")
+
+Boundary(home, "Дом пользователя") {
+  System_Ext(device, "Устройство", "напр. термостат")
+}
+
+System_Boundary(warmhouse, "Экосистема «Тёплый дом»") {
+  ContainerQueue(mqtt, "MQTT Broker", "EMQX")
+  Container(deviceSvc, "Device Service", "напр. Heating Service")
+  ContainerDb(devicesDb, "Devices DB", "PostgreSQL")
+  ContainerQueue(eventBus, "Event Bus", "Apache Kafka")
+  Container(telemetry, "Telemetry Service", "Python")
+  Container(automation, "Automation Service", "Go")
+  Container(gateway, "API Gateway", "Go")
+}
+
+Rel(device, mqtt, "1. Подключается с Last Will и публикует devices/{id}/status = online", "MQTT over TLS, retained")
+Rel(mqtt, deviceSvc, "2. Связь пропала — брокер сам публикует status = offline", "MQTT")
+Rel(deviceSvc, devicesDb, "3. Обновляет online и lastSeen", "SQL")
+Rel(deviceSvc, eventBus, "4. device.connectivity.changed", "Kafka")
+Rel(eventBus, telemetry, "5. История доступности", "Kafka")
+Rel(eventBus, automation, "5. Статус устройства в справочнике", "Kafka")
+Rel(user, gateway, "6. Видит «не в сети»", "HTTPS / REST")
+Rel(gateway, deviceSvc, "6. GetThermostat", "gRPC")
+
+@enduml

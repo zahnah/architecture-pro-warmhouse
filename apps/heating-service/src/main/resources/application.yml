@@ -1,0 +1,32 @@
+server:
+  port: ${HTTP_PORT:8082}
+
+spring:
+  application:
+    name: heating-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/devices}
+    username: ${DATABASE_USER:heating}
+    password: ${DATABASE_PASSWORD:heating}
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
+    consumer:
+      group-id: heating-service
+      # A new instance reads device.lifecycle from the beginning to restore the thermostat list
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+heating:
+  grpc-port: ${GRPC_PORT:9090}
+  poll-interval: ${POLL_INTERVAL:1s}
+  temperature-api-url: ${TEMPERATURE_API_URL:http://localhost:8081}

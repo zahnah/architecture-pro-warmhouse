@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+// Доменные события в Apache Kafka (AsyncAPI event-bus.yaml).
+// Значение записи Kafka — бинарный Protobuf одного из сообщений ниже, ключ — device_id в UTF-8,
+// тип сообщения — в заголовке eventType (имя сообщения без пакета).
+// Поля добавляются только с новыми номерами; удалённые номера помечаются reserved.
+package warmhouse.events.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "ru.warmhouse.events.v1";
+
+// Топик device.lifecycle. Platform Service после AddDevice.
+message DeviceRegistered {
+  // UUID; потребители обрабатывают события идемпотентно по нему
+  string event_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string device_id = 3;
+  string home_id = 4;
+  // Тип устройства из каталога; по нему Device Service выбирает свои устройства
+  string type = 5;
+  string model_id = 6;
+}
+
+// Топик device.lifecycle. Platform Service после RemoveDevice.
+message DeviceUnregistered {
+  string event_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string device_id = 3;
+  string home_id = 4;
+}
+
+// Топик telemetry.reading. Device Service, нормализованное показание.
+message TelemetryReading {
+  string event_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string device_id = 3;
+  string home_id = 4;
+  // temperature, humidity, ...
+  string metric = 5;
+  double value = 6;
+  // celsius, percent, ...
+  string unit = 7;
+  // Время измерения на устройстве
+  google.protobuf.Timestamp measured_at = 8;
+}
+
+// Топик device.state.changed. Device Service, устройство подтвердило новое состояние.
+message DeviceStateChanged {
+  string event_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string device_id = 3;
+  string home_id = 4;
+  string type = 5;
+  // Сообщение состояния из контракта Device Service этого типа,
+  // для heating — warmhouse.heating.v1.ThermostatState
+  google.protobuf.Any state = 6;
+}
+
+// Топик device.connectivity.changed. Device Service по devices/{deviceId}/status.
+message DeviceConnectivityChanged {
+  string event_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string device_id = 3;
+  string home_id = 4;
+  bool online = 5;
+}

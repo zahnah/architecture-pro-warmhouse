@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>AsyncAPI</title>
+  <link rel="stylesheet" href="asyncapi-ui.css">
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    header { display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+             padding: 10px 24px; background: #1b1b1b; color: #fff; }
+    header select { min-width: 280px; padding: 4px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <label for="spec">Select a definition</label>
+    <select id="spec"></select>
+  </header>
+  <div id="asyncapi"></div>
+
+  <script src="asyncapi-ui.js"></script>
+  <script>
+    fetch('config.json')
+      .then((response) => response.json())
+      .then((specs) => {
+        const select = document.getElementById('spec');
+        const current = new URLSearchParams(location.search).get('spec') || specs[0].name;
+        for (const spec of specs) {
+          select.add(new Option(spec.name, spec.name, false, spec.name === current));
+        }
+        select.addEventListener('change', () => {
+          location.search = '?spec=' + encodeURIComponent(select.value);
+        });
+
+        const spec = specs.find((s) => s.name === current) || specs[0];
+        AsyncApiStandalone.render(
+          { schema: { url: spec.url, options: { method: 'GET' } }, config: { show: { sidebar: true } } },
+          document.getElementById('asyncapi'),
+        );
+      });
+  </script>
+</body>
+</html>

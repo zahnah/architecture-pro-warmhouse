@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+// Состояние термостата в событии warmhouse.events.v1.DeviceStateChanged (поле state, тип Any).
+package warmhouse.heating.v1;
+
+import "google/protobuf/wrappers.proto";
+import "warmhouse/heating/v1/heating_service.proto";
+
+option java_multiple_files = true;
+option java_package = "ru.warmhouse.heating.v1";
+
+message ThermostatState {
+  HeatingMode mode = 1;
+  // °C
+  double target_temperature = 2;
+  // °C; нет, пока устройство не прислало показание
+  google.protobuf.DoubleValue current_temperature = 3;
+  bool relay_on = 4;
+}

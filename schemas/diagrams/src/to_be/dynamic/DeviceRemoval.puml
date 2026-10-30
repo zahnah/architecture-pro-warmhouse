@@ -1,0 +1,36 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Dynamic Diagram: отвязка устройства от дома
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(user, "Пользователь")
+
+System_Boundary(warmhouse, "Экосистема «Тёплый дом»") {
+  Container(gateway, "API Gateway", "Go")
+  Container(platform, "Platform Service", "Go")
+  ContainerDb(platformDb, "Platform DB", "PostgreSQL")
+  ContainerQueue(eventBus, "Event Bus", "Apache Kafka")
+  Container(deviceSvc, "Device Service", "по типу устройства")
+  Container(automation, "Automation Service", "Go")
+  ContainerQueue(mqtt, "MQTT Broker", "EMQX")
+}
+
+Boundary(home, "Дом пользователя") {
+  System_Ext(hub, "Контроллер дома", "Исполняет сценарии локально")
+}
+
+Rel(user, gateway, "1. Удаляет устройство из дома", "HTTPS / REST")
+Rel(gateway, platform, "2. RemoveDevice(deviceId)", "gRPC")
+Rel(platform, platformDb, "3. Отвязывает устройство от дома", "SQL")
+Rel(platform, mqtt, "4. Отзывает учётные данные, разрывает сессию устройства", "EMQX API")
+Rel(platform, eventBus, "5. DeviceUnregistered в device.lifecycle", "Kafka")
+Rel(eventBus, deviceSvc, "6. Удаляет состояние; пустой retained devices/{id}/config", "Kafka")
+Rel(eventBus, automation, "7. Отключает сценарии с устройством", "Kafka")
+Rel(automation, mqtt, "8. Новый набор homes/{homeId}/scenarios", "MQTT, retained")
+Rel(mqtt, hub, "9. Обновлённые сценарии дома", "MQTT over TLS")
+
+@enduml

@@ -1,0 +1,40 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Component Diagram: Automation Service
+
+top to bottom direction
+
+!include C4_Component.puml
+
+Container(gateway, "API Gateway", "Go")
+ContainerDb(automationDb, "Automation DB", "PostgreSQL")
+ContainerQueue(eventBus, "Event Bus", "Apache Kafka")
+ContainerQueue(mqtt, "MQTT Broker", "EMQX")
+
+Container_Boundary(automation, "Automation Service (Go)") {
+  Component(api, "Scenario gRPC API", "grpc-go", "Создание и изменение сценариев, статус контроллера дома")
+  Component(validator, "Scenario Validator", "Go", "Проверяет, что устройства сценария есть в доме и поддерживают действие")
+  Component(directory, "Device Directory", "Go", "Устройства домов и их статус в сети; при отвязке устройства отключает сценарии с ним")
+  Component(publisher, "Scenario Publisher", "MQTT", "Отправляет актуальный набор сценариев дома на контроллер")
+  Component(runLog, "Run Log Consumer", "MQTT", "Принимает отчёты контроллера о запусках")
+  Component(hubStatus, "Hub Status Consumer", "MQTT", "Контроллер в сети / не в сети (Last Will)")
+  Component(repo, "Scenario Repository", "pgx", "Сценарии, журнал запусков, статус контроллеров")
+}
+
+Rel(gateway, api, "gRPC")
+Rel(api, validator, "Проверить")
+Rel(validator, directory, "Устройства дома")
+Rel(api, repo, "Сохранить")
+Rel(api, publisher, "Сценарии дома изменились")
+Rel(directory, publisher, "Устройство отвязано — сценарии дома изменились")
+Rel(publisher, mqtt, "Pub", "homes/{homeId}/scenarios (retained)")
+Rel(mqtt, runLog, "Sub", "homes/{homeId}/scenario-runs")
+Rel(mqtt, hubStatus, "Sub", "homes/{homeId}/hub/status")
+Rel(runLog, repo, "Записать запуск")
+Rel(hubStatus, repo, "Записать статус")
+Rel(eventBus, directory, "Sub", "device.lifecycle, device.connectivity.changed")
+Rel(directory, repo, "")
+Rel(repo, automationDb, "SQL")
+
+@enduml

@@ -1,0 +1,45 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Container Diagram (MVP, apps/docker-compose.yml)
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(user, "Пользователь", "Postman / клиент REST API монолита")
+
+System_Boundary(mvp, "MVP «Тёплый дом»") {
+  Container(legacy, "Legacy Monolith smart_home", "Go, Gin", "REST /api/v1/sensors. На время миграции играет роль Platform Service: публикует подключение и отвязку датчиков")
+
+  Container(heating, "Heating Service", "Java 21, Spring Boot, grpc-java", "Device Service типа heating: термостаты, целевая температура, режим, реле, статус в сети")
+  Container(telemetry, "Telemetry Service", "Python 3.12, grpcio", "Приём и хранение показаний и истории доступности")
+
+  ContainerQueue(eventBus, "Event Bus", "Apache Kafka (KRaft)", "Protobuf-события; ключ — deviceId; device.lifecycle — compacted-топик")
+
+  Container_Boundary(pg, "PostgreSQL (TimescaleDB image), один контейнер") {
+    ContainerDb(monolithDb, "smarthome", "PostgreSQL", "Таблица sensors")
+    ContainerDb(devicesDb, "devices", "PostgreSQL", "thermostats, processed_events; владелец — heating")
+    ContainerDb(telemetryDb, "telemetry", "TimescaleDB", "Hypertables readings, availability; владелец — telemetry")
+  }
+}
+
+System_Ext(tempApi, "temperature-api", "Go. Эмулятор термостатов вместо MQTT-брокера и реальных устройств")
+
+Rel(user, legacy, "REST", "Create / Get / Update value / Delete Sensor")
+
+Rel(legacy, monolithDb, "SQL")
+Rel(legacy, eventBus, "Pub", "device.lifecycle: DeviceRegistered, DeviceUnregistered")
+Rel(legacy, telemetry, "gRPC", "GetLatestReadings для GET /sensors")
+Rel(legacy, heating, "gRPC", "SetTarget, SetMode для PATCH /sensors/:id/value")
+Rel(legacy, tempApi, "REST", "Запасной путь, пока у Telemetry нет показаний")
+
+Rel(eventBus, heating, "Sub", "device.lifecycle")
+Rel(heating, devicesDb, "SQL")
+Rel(heating, tempApi, "REST", "Опрос GET /temperature/{deviceId}")
+Rel(heating, eventBus, "Pub", "telemetry.reading, device.state.changed, device.connectivity.changed")
+
+Rel(eventBus, telemetry, "Sub", "telemetry.reading, device.connectivity.changed")
+Rel(telemetry, telemetryDb, "SQL")
+
+@enduml

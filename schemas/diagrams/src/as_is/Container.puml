@@ -1,0 +1,29 @@
+@startuml
+!define RELATIVE_INCLUDE
+
+title Warm House — Container Diagram (As-Is)
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(homeowner, "Владелец дома", "Клиент REST API: отопление и просмотр температуры")
+Person(installer, "Монтажник", "Выездное подключение модулей отопления")
+
+Container_Boundary(monolith, "Монолит «Тёплый дом» (один bounded context, один процесс)") {
+  Container(api, "HTTP API", "Go, Gin", "REST /api/v1/sensors, /health")
+  Container(appLogic, "Логика датчиков", "Go", "SensorHandler + TemperatureService")
+  ContainerDb(db, "Database", "PostgreSQL", "Таблица sensors")
+}
+
+System_Ext(field, "Модули отопления и датчики (temperature-api)", "HTTP temperature-api — канал монолита к телеметрии модулей в домах")
+
+Rel(homeowner, api, "HTTPS", "Мониторинг и управление отоплением")
+Rel(installer, field, "Монтаж и первичная настройка на объекте")
+Rel(installer, api, "Добавление в реестр", "POST /api/v1/sensors")
+
+Rel(api, appLogic, "Вызывает")
+Rel(appLogic, db, "Читает/записывает", "SQL")
+Rel(appLogic, field, "Опрос температуры", "HTTP, синхронно")
+
+@enduml

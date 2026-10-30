@@ -1,0 +1,71 @@
+@startuml
+title Warm House — Code Diagram (To-Be): Heating Service
+
+top to bottom direction
+
+skinparam classAttributeIconSize 0
+
+class HeatingGrpcService <<GrpcService>> {
+  +listThermostats(ListThermostatsRequest): ListThermostatsResponse
+  +getThermostat(GetThermostatRequest): pb.Thermostat
+  +setTarget(SetTargetRequest): pb.Thermostat
+  +setMode(SetModeRequest): pb.Thermostat
+}
+
+class HeatingService <<Service>> {
+  +setTarget(deviceId, temperature)
+  +setMode(deviceId, mode)
+  +onDeviceRegistered(deviceId, homeId)
+  +onDeviceUnregistered(deviceId)
+  +onStateReported(deviceId, current, relayOn)
+  +onConnectivityChanged(deviceId, online, at)
+}
+
+class Thermostat <<Entity>> {
+  -deviceId: UUID
+  -homeId: UUID
+  -targetTemperature: Decimal
+  -currentTemperature: Decimal
+  -mode: HeatingMode
+  -relayOn: boolean
+  -online: boolean
+  -lastSeenAt: Instant
+}
+
+enum HeatingMode {
+  OFF
+  MANUAL
+  ECO
+}
+
+interface ThermostatRepository {
+  +findByDeviceId(id): Thermostat
+  +findByHomeId(homeId): List<Thermostat>
+  +save(t: Thermostat)
+  +delete(deviceId)
+}
+
+class DeviceMqttAdapter <<MQTT>> {
+  +publishDesiredConfig(deviceId, ThermostatConfig)
+  +clearDesiredConfig(deviceId)
+  +onRawMessage(topic, payload)
+  -normalize(payload): ThermostatReading
+}
+
+class DomainEventHandler <<Kafka>> {
+  +onLifecycleEvent(DeviceLifecycleEvent)
+  +publishReading(TelemetryReading)
+  +publishStateChanged(DeviceStateChanged)
+  +publishConnectivityChanged(DeviceConnectivityChanged)
+}
+
+HeatingGrpcService --> HeatingService
+DeviceMqttAdapter --> HeatingService
+HeatingService --> DeviceMqttAdapter
+DomainEventHandler --> HeatingService
+HeatingService --> DomainEventHandler
+HeatingService --> ThermostatRepository
+ThermostatRepository ..> Thermostat
+Thermostat --> HeatingMode
+
+@enduml

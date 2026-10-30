@@ -1,0 +1,76 @@
+services:
+  plantuml-server:
+    # Same PlantUML version as the plantuml exporter, so editor preview matches exported SVG
+    image: plantuml/plantuml-server:jetty-v1.2026.9
+    container_name: plantuml-server
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./schemas/diagrams:/workspace:ro
+    environment:
+      PLANTUML_CONFIG_FILE: /workspace/config/plantuml-preamble.puml
+      PLANTUML_PROPERTY_FILE: /workspace/config/plantuml-server.properties
+    restart: unless-stopped
+
+  # Generators for make precommit; the tools profile keeps them out of docker compose up
+  plantuml:
+    build:
+      context: ./schemas/diagrams/tools
+    image: warmhouse/plantuml
+    profiles: [tools]
+    volumes:
+      - ./schemas/diagrams:/work
+
+  protoc:
+    build:
+      context: ./schemas/api/tools
+    image: warmhouse/protoc
+    profiles: [tools]
+    volumes:
+      - ./schemas/api:/work
+
+  # Writes generated stubs into apps/, so it mounts the whole repository
+  codegen:
+    build:
+      context: ./schemas/api/tools/codegen
+    image: warmhouse/codegen
+    profiles: [tools]
+    volumes:
+      - .:/work
+
+  swagger-ui:
+    build:
+      context: ./schemas/api
+      dockerfile: viewer/swagger-ui/Dockerfile
+    image: warmhouse/swagger-ui
+    container_name: swagger-ui
+    ports:
+      - "8091:8080"
+    environment:
+      URLS: >-
+        [
+          {"name": "Platform Service", "url": "specs/platform_service.swagger.yaml"},
+          {"name": "Heating Service", "url": "specs/heating_service.swagger.yaml"},
+          {"name": "Automation Service", "url": "specs/automation_service.swagger.yaml"},
+          {"name": "Telemetry Service", "url": "specs/telemetry_service.swagger.yaml"}
+        ]
+      URLS_PRIMARY_NAME: Platform Service
+      DOC_EXPANSION: list
+      DEEP_LINKING: "true"
+    restart: unless-stopped
+
+  asyncapi-ui:
+    build:
+      context: ./schemas/api
+      dockerfile: viewer/asyncapi/Dockerfile
+    image: warmhouse/asyncapi-ui
+    container_name: asyncapi-ui
+    ports:
+      - "8092:8080"
+    environment:
+      ASYNCAPI_SPECS: >-
+        [
+          {"name": "Event Bus (Kafka)", "url": "specs/event-bus.yaml"},
+          {"name": "Devices and Hubs (MQTT)", "url": "specs/mqtt.yaml"}
+        ]
+    restart: unless-stopped

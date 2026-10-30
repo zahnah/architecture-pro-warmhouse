@@ -1,35 +1,200 @@
-version: '3.8'
-
 services:
+  # One PostgreSQL for local development with a database per service:
+  # smarthome (monolith), devices (heating-service), telemetry (telemetry-service, TimescaleDB)
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:2.31.0-pg16
     container_name: smarthome-postgres
-  ## тут нужно добавить настройки
+    # init.sql creates the smarthome database itself, so POSTGRES_DB stays default
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./smart_home/init.sql:/docker-entrypoint-initdb.d/01-smarthome.sql:ro
+      - ./postgres/init-services.sql:/docker-entrypoint-initdb.d/02-services.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      # TCP check: the temporary server running the init scripts listens only on the unix socket
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d smarthome"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+  kafka:
+    image: apache/kafka:4.3.2
+    container_name: smarthome-kafka
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # PLAINTEXT for containers, EXTERNAL for clients on the host
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      # Topics and their settings come from kafka-init
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9094:9094"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+  kafka-init:
+    image: apache/kafka:4.3.2
+    container_name: smarthome-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./kafka/create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["sh", "/create-topics.sh"]
+    restart: "no"
+    networks:
+      - smarthome-network
 
   temperature-api:
-  ## тут нужно добавить приложение
+    build:
+      context: ./temperature-api
+      dockerfile: Dockerfile
+    container_name: temperature-api
+    environment:
+      - PORT=8081
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+  # Device Service for heating; temperature-api emulates the thermostats
+  heating-service:
+    build:
+      context: ./heating-service
+      dockerfile: Dockerfile
+    container_name: heating-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      temperature-api:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/devices
+      - DATABASE_USER=heating
+      - DATABASE_PASSWORD=heating
+      - KAFKA_BROKERS=kafka:9092
+      - TEMPERATURE_API_URL=http://temperature-api:8081
+      - POLL_INTERVAL=1s
+    ports:
+      - "8082:8082"
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8082/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+  telemetry-service:
+    build:
+      context: ./telemetry-service
+      dockerfile: Dockerfile
+    container_name: telemetry-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry
+      - KAFKA_BROKERS=kafka:9092
+    ports:
+      - "8083:8083"
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - smarthome-network
 
   app:
     build:
       context: ./smart_home
       dockerfile: Dockerfile
     container_name: smarthome-app
+    # The monolith falls back to temperature-api while the microservices are unavailable,
+    # so it only waits for them to start
     depends_on:
       postgres:
         condition: service_healthy
       temperature-api:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      heating-service:
+        condition: service_started
+      telemetry-service:
         condition: service_started
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/smarthome
       - TEMPERATURE_API_URL=http://temperature-api:8081
+      - KAFKA_BROKERS=kafka:9092
+      - TELEMETRY_GRPC_ADDR=telemetry-service:9091
+      - HEATING_GRPC_ADDR=heating-service:9090
+      - DEFAULT_HOME_ID=00000000-0000-0000-0000-000000000001
     ports:
       - "8080:8080"
     restart: unless-stopped
     networks:
       - smarthome-network
 
+  # Testcontainers e2e: starts its own copy of the stack on random ports
+  e2e:
+    profiles: [e2e]
+    build:
+      context: .
+      dockerfile: e2e/Dockerfile
+    environment:
+      - TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - smarthome-network
+
 volumes:
-  postgres_data:
+  pgdata:
+  kafka_data:
 
 networks:
   smarthome-network:

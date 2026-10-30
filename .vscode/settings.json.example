@@ -1,0 +1,5 @@
+{
+  "plantuml.server": "http://localhost:8090",
+  "plantuml.exportFormat": "svg",
+  "plantuml.render": "PlantUMLServer",
+}
