@@ -6,9 +6,10 @@ top to bottom direction
 skinparam classAttributeIconSize 0
 
 class HeatingGrpcService <<GrpcService>> {
-  +getThermostat(GetThermostatRequest): ThermostatReply
-  +setTarget(SetTargetRequest): ThermostatReply
-  +setMode(SetModeRequest): ThermostatReply
+  +listThermostats(ListThermostatsRequest): ListThermostatsResponse
+  +getThermostat(GetThermostatRequest): pb.Thermostat
+  +setTarget(SetTargetRequest): pb.Thermostat
+  +setMode(SetModeRequest): pb.Thermostat
 }
 
 class HeatingService <<Service>> {
@@ -39,6 +40,7 @@ enum HeatingMode {
 
 interface ThermostatRepository {
   +findByDeviceId(id): Thermostat
+  +findByHomeId(homeId): List<Thermostat>
   +save(t: Thermostat)
   +delete(deviceId)
 }

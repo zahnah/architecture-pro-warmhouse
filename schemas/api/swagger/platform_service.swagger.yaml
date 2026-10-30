@@ -1,0 +1,1117 @@
+swagger: "2.0"
+info:
+  title: Platform Service API
+  description: Пользователи и дома, каталог моделей устройств, подключение и отвязка устройств. AddDevice и RemoveDevice публикуют DeviceRegistered / DeviceUnregistered в Kafka-топик device.lifecycle (AsyncAPI event-bus.yaml).
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+tags:
+  - name: IdentityService
+    description: Регистрация, вход, дома, члены семьи и комнаты.
+  - name: CatalogService
+    description: Каталог моделей устройств; ведёт сотрудник компании.
+  - name: DeviceOnboardingService
+    description: Подключение устройств к дому и отвязка.
+host: api.warmhouse.example
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+paths:
+  /api/v2/auth/login:
+    post:
+      summary: Вход по email или телефону
+      operationId: IdentityService_Login
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1LoginResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1LoginRequest'
+      tags:
+        - IdentityService
+      security: []
+  /api/v2/auth/register:
+    post:
+      summary: Регистрация пользователя
+      operationId: IdentityService_RegisterUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1User'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1RegisterUserRequest'
+      tags:
+        - IdentityService
+      security: []
+  /api/v2/device-models:
+    get:
+      summary: Каталог моделей устройств
+      operationId: CatalogService_ListDeviceModels
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListDeviceModelsResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: deviceType
+          description: Фильтр по типу устройства
+          in: query
+          required: false
+          type: string
+      tags:
+        - CatalogService
+    post:
+      summary: Добавить модель в каталог (роль operator)
+      operationId: CatalogService_CreateDeviceModel
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1DeviceModel'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1CreateDeviceModelRequest'
+      tags:
+        - CatalogService
+  /api/v2/device-models/{modelId}:
+    get:
+      summary: Модель устройства
+      operationId: CatalogService_GetDeviceModel
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1DeviceModel'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: modelId
+          in: path
+          required: true
+          type: string
+      tags:
+        - CatalogService
+  /api/v2/homes:
+    get:
+      summary: Дома, в которых пользователь — владелец или член семьи
+      operationId: IdentityService_ListHomes
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListHomesResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      tags:
+        - IdentityService
+    post:
+      summary: Создать дом; создатель становится владельцем
+      operationId: IdentityService_CreateHome
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Home'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/v1CreateHomeRequest'
+      tags:
+        - IdentityService
+  /api/v2/homes/{homeId}:
+    get:
+      summary: Дом
+      operationId: IdentityService_GetHome
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Home'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+      tags:
+        - IdentityService
+    delete:
+      summary: Удалить дом (только владелец); все устройства дома отвязываются
+      operationId: IdentityService_DeleteHome
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+      tags:
+        - IdentityService
+    patch:
+      summary: Изменить дом (только владелец)
+      operationId: IdentityService_UpdateHome
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Home'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/IdentityServiceUpdateHomeBody'
+      tags:
+        - IdentityService
+  /api/v2/homes/{homeId}/devices:
+    get:
+      summary: Устройства дома
+      operationId: DeviceOnboardingService_ListDevices
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListDevicesResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: roomId
+          description: Фильтр по комнате
+          in: query
+          required: false
+          type: string
+        - name: deviceType
+          description: Фильтр по типу устройства
+          in: query
+          required: false
+          type: string
+      tags:
+        - DeviceOnboardingService
+    post:
+      summary: Подключить устройство к дому по серийному номеру и коду.
+      description: |-
+        Проверяет код, привязывает устройство к дому, выдаёт в EMQX учётные данные на devices/{deviceId}/*
+        и публикует DeviceRegistered в device.lifecycle. Учётные данные MQTT возвращаются один раз —
+        их передаёт устройству мобильное приложение.
+      operationId: DeviceOnboardingService_AddDevice
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1AddDeviceResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/DeviceOnboardingServiceAddDeviceBody'
+      tags:
+        - DeviceOnboardingService
+  /api/v2/homes/{homeId}/devices/{deviceId}:
+    get:
+      summary: Устройство дома
+      operationId: DeviceOnboardingService_GetDevice
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Device'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+      tags:
+        - DeviceOnboardingService
+    delete:
+      summary: Отвязать устройство от дома.
+      description: |-
+        Отзывает учётные данные MQTT, разрывает сессию устройства в EMQX и публикует
+        DeviceUnregistered в device.lifecycle. История телеметрии сохраняется.
+      operationId: DeviceOnboardingService_RemoveDevice
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+      tags:
+        - DeviceOnboardingService
+    patch:
+      summary: Переименовать устройство или перенести в другую комнату
+      operationId: DeviceOnboardingService_UpdateDevice
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Device'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/DeviceOnboardingServiceUpdateDeviceBody'
+      tags:
+        - DeviceOnboardingService
+  /api/v2/homes/{homeId}/members:
+    get:
+      summary: Члены семьи
+      operationId: IdentityService_ListMembers
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListMembersResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+      tags:
+        - IdentityService
+    post:
+      summary: Добавить члена семьи по телефону (только владелец)
+      operationId: IdentityService_AddMember
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1HomeMember'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/IdentityServiceAddMemberBody'
+      tags:
+        - IdentityService
+  /api/v2/homes/{homeId}/members/{userId}:
+    delete:
+      summary: Удалить члена семьи (только владелец)
+      operationId: IdentityService_RemoveMember
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: userId
+          in: path
+          required: true
+          type: string
+      tags:
+        - IdentityService
+  /api/v2/homes/{homeId}/rooms:
+    get:
+      summary: Комнаты дома
+      operationId: IdentityService_ListRooms
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListRoomsResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+      tags:
+        - IdentityService
+    post:
+      summary: Добавить комнату
+      operationId: IdentityService_CreateRoom
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Room'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/IdentityServiceCreateRoomBody'
+      tags:
+        - IdentityService
+  /api/v2/homes/{homeId}/rooms/{roomId}:
+    delete:
+      summary: Удалить комнату; устройства остаются в доме без комнаты
+      operationId: IdentityService_DeleteRoom
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: roomId
+          in: path
+          required: true
+          type: string
+      tags:
+        - IdentityService
+  /api/v2/me:
+    get:
+      summary: Текущий пользователь
+      operationId: IdentityService_GetCurrentUser
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1User'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет прав на ресурс
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Ресурс не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      tags:
+        - IdentityService
+definitions:
+  DeviceOnboardingServiceAddDeviceBody:
+    type: object
+    properties:
+      serialNumber:
+        type: string
+        example: WH-T1-000123
+      pairingCode:
+        type: string
+        title: Код с наклейки или из коробки устройства
+      name:
+        type: string
+      roomId:
+        type: string
+    required:
+      - serialNumber
+      - pairingCode
+  DeviceOnboardingServiceUpdateDeviceBody:
+    type: object
+    properties:
+      name:
+        type: string
+      roomId:
+        type: string
+        title: Пустая строка — убрать из комнаты
+  IdentityServiceAddMemberBody:
+    type: object
+    properties:
+      phone:
+        type: string
+        title: Телефон зарегистрированного пользователя в формате E.164
+      role:
+        $ref: '#/definitions/v1MemberRole'
+        title: По умолчанию MEMBER_ROLE_MEMBER
+    required:
+      - phone
+  IdentityServiceCreateRoomBody:
+    type: object
+    properties:
+      name:
+        type: string
+        example: Гостиная
+    required:
+      - name
+  IdentityServiceUpdateHomeBody:
+    type: object
+    properties:
+      name:
+        type: string
+      address:
+        type: string
+      timezone:
+        type: string
+  protobufAny:
+    type: object
+    properties:
+      '@type':
+        type: string
+    additionalProperties: true
+  protobufNullValue:
+    type: string
+    description: |-
+      `NullValue` is a singleton enumeration to represent the null value for the
+      `Value` type union.
+
+      The JSON representation for `NullValue` is JSON `null`.
+  rpcStatus:
+    type: object
+    properties:
+      code:
+        type: integer
+        format: int32
+      message:
+        type: string
+      details:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/protobufAny'
+  v1AddDeviceResponse:
+    type: object
+    properties:
+      device:
+        $ref: '#/definitions/v1Device'
+      mqtt:
+        $ref: '#/definitions/v1MqttCredentials'
+  v1CreateDeviceModelRequest:
+    type: object
+    properties:
+      vendor:
+        type: string
+      name:
+        type: string
+      deviceType:
+        type: string
+      capabilities:
+        type: object
+    required:
+      - vendor
+      - name
+      - deviceType
+      - capabilities
+  v1CreateHomeRequest:
+    type: object
+    properties:
+      name:
+        type: string
+      address:
+        type: string
+      timezone:
+        type: string
+        title: Часовой пояс IANA
+    required:
+      - name
+      - timezone
+  v1Device:
+    type: object
+    properties:
+      id:
+        type: string
+        readOnly: true
+      homeId:
+        type: string
+      roomId:
+        type: string
+        title: Пусто — устройство не в комнате
+      modelId:
+        type: string
+      deviceType:
+        type: string
+      serialNumber:
+        type: string
+      name:
+        type: string
+      registeredAt:
+        type: string
+        format: date-time
+        readOnly: true
+  v1DeviceModel:
+    type: object
+    properties:
+      id:
+        type: string
+        readOnly: true
+      vendor:
+        type: string
+      name:
+        type: string
+      deviceType:
+        type: string
+        example: heating
+        title: Тип устройства (heating, lighting, gate, ...); определяет Device Service, который им управляет
+      capabilities:
+        type: object
+        title: |-
+          Что умеет модель; формат задаёт Device Service типа.
+          Пример для термостата: {"targetTemperature": {"min": 5, "max": 35, "step": 0.5}, "modes": ["off", "manual", "eco"]}
+  v1Home:
+    type: object
+    properties:
+      id:
+        type: string
+        readOnly: true
+      name:
+        type: string
+      address:
+        type: string
+      timezone:
+        type: string
+        example: Europe/Moscow
+        title: Часовой пояс IANA; нужен контроллеру для сценариев по расписанию
+      role:
+        $ref: '#/definitions/v1MemberRole'
+        title: Роль текущего пользователя в доме
+        readOnly: true
+      createdAt:
+        type: string
+        format: date-time
+        readOnly: true
+      updatedAt:
+        type: string
+        format: date-time
+        readOnly: true
+  v1HomeMember:
+    type: object
+    properties:
+      userId:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+      role:
+        $ref: '#/definitions/v1MemberRole'
+      createdAt:
+        type: string
+        format: date-time
+  v1ListDeviceModelsResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1DeviceModel'
+  v1ListDevicesResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Device'
+  v1ListHomesResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Home'
+  v1ListMembersResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1HomeMember'
+  v1ListRoomsResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Room'
+  v1LoginRequest:
+    type: object
+    properties:
+      login:
+        type: string
+        title: Email или телефон
+      password:
+        type: string
+    required:
+      - login
+      - password
+  v1LoginResponse:
+    type: object
+    properties:
+      accessToken:
+        type: string
+      expiresIn:
+        type: integer
+        format: int32
+        title: Время жизни токена, секунды
+  v1MemberRole:
+    type: string
+    enum:
+      - MEMBER_ROLE_OWNER
+      - MEMBER_ROLE_MEMBER
+    description: Роль пользователя в доме
+  v1MqttCredentials:
+    type: object
+    properties:
+      host:
+        type: string
+        example: mqtt.warmhouse.example
+      port:
+        type: integer
+        format: int32
+        example: 8883
+      username:
+        type: string
+        title: Совпадает с deviceId
+      password:
+        type: string
+    title: Учётные данные устройства в EMQX; права только на devices/{deviceId}/*
+  v1RegisterUserRequest:
+    type: object
+    properties:
+      email:
+        type: string
+      phone:
+        type: string
+        example: "+79991234567"
+        title: Телефон в формате E.164
+        pattern: ^\+[1-9][0-9]{7,14}$
+      name:
+        type: string
+      password:
+        type: string
+        minLength: 8
+    required:
+      - email
+      - phone
+      - name
+      - password
+  v1Room:
+    type: object
+    properties:
+      id:
+        type: string
+        readOnly: true
+      homeId:
+        type: string
+      name:
+        type: string
+  v1User:
+    type: object
+    properties:
+      id:
+        type: string
+        readOnly: true
+      email:
+        type: string
+      phone:
+        type: string
+        example: "+79991234567"
+        title: Телефон в формате E.164
+        pattern: ^\+[1-9][0-9]{7,14}$
+      name:
+        type: string
+      createdAt:
+        type: string
+        format: date-time
+        readOnly: true
+securityDefinitions:
+  bearer:
+    type: apiKey
+    description: 'JWT: Bearer <token>'
+    name: Authorization
+    in: header
+security:
+  - bearer: []

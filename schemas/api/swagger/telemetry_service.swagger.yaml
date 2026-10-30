@@ -1,0 +1,321 @@
+swagger: "2.0"
+info:
+  title: Telemetry Service API
+  description: 'Последние значения, история показаний и история доступности устройств. Только чтение: данные приходят из Kafka-топиков telemetry.reading и device.connectivity.changed (AsyncAPI event-bus.yaml). Legacy Monolith на период миграции вызывает GetLatestReadings по gRPC напрямую. История остаётся доступной после отвязки устройства, пока не истечёт срок хранения.'
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+tags:
+  - name: TelemetryService
+    description: Показания и история доступности устройств.
+host: api.warmhouse.example
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+paths:
+  /api/v2/devices/{deviceId}/availability:
+    get:
+      summary: Смены статуса «в сети / не в сети» за период
+      operationId: TelemetryService_ListAvailability
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListAvailabilityResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет доступа к устройству или дому
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Данных по устройству нет
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+        - name: from
+          in: query
+          required: true
+          type: string
+          format: date-time
+        - name: to
+          description: По умолчанию — текущий момент
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: limit
+          in: query
+          required: false
+          type: integer
+          format: int32
+      tags:
+        - TelemetryService
+  /api/v2/devices/{deviceId}/readings:
+    get:
+      summary: История метрики устройства.
+      description: Без interval возвращает сырые показания, с interval — агрегаты по интервалам (TimescaleDB time_bucket).
+      operationId: TelemetryService_ListReadings
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ReadingSeries'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет доступа к устройству или дому
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Данных по устройству нет
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+        - name: metric
+          in: query
+          required: true
+          type: string
+        - name: from
+          in: query
+          required: true
+          type: string
+          format: date-time
+        - name: to
+          description: По умолчанию — текущий момент
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: interval
+          in: query
+          required: false
+          type: string
+          enum:
+            - AGGREGATION_INTERVAL_1M
+            - AGGREGATION_INTERVAL_5M
+            - AGGREGATION_INTERVAL_1H
+            - AGGREGATION_INTERVAL_1D
+        - name: limit
+          description: По умолчанию 1000, не больше 10000
+          in: query
+          required: false
+          type: integer
+          format: int32
+      tags:
+        - TelemetryService
+  /api/v2/devices/{deviceId}/readings/latest:
+    get:
+      summary: Последнее значение каждой метрики устройства
+      operationId: TelemetryService_GetLatestReadings
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1GetLatestReadingsResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет доступа к устройству или дому
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Данных по устройству нет
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+      tags:
+        - TelemetryService
+  /api/v2/homes/{homeId}/readings/latest:
+    get:
+      summary: Последние значения по всем устройствам дома
+      operationId: TelemetryService_GetHomeLatestReadings
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1GetHomeLatestReadingsResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Нет доступа к устройству или дому
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Данных по устройству нет
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: metric
+          description: Фильтр по метрике
+          in: query
+          required: false
+          type: string
+      tags:
+        - TelemetryService
+definitions:
+  protobufAny:
+    type: object
+    properties:
+      '@type':
+        type: string
+    additionalProperties: true
+  rpcStatus:
+    type: object
+    properties:
+      code:
+        type: integer
+        format: int32
+      message:
+        type: string
+      details:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/protobufAny'
+  v1AggregationInterval:
+    type: string
+    enum:
+      - AGGREGATION_INTERVAL_1M
+      - AGGREGATION_INTERVAL_5M
+      - AGGREGATION_INTERVAL_1H
+      - AGGREGATION_INTERVAL_1D
+  v1AvailabilityChange:
+    type: object
+    properties:
+      time:
+        type: string
+        format: date-time
+      online:
+        type: boolean
+  v1GetHomeLatestReadingsResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Reading'
+  v1GetLatestReadingsResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Reading'
+  v1ListAvailabilityResponse:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1AvailabilityChange'
+        title: По возрастанию времени
+  v1Reading:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      metric:
+        type: string
+        example: temperature
+      value:
+        type: number
+        format: double
+        example: 21.4
+      unit:
+        type: string
+        example: celsius
+      time:
+        type: string
+        format: date-time
+  v1ReadingSeries:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      metric:
+        type: string
+      unit:
+        type: string
+      interval:
+        $ref: '#/definitions/v1AggregationInterval'
+      points:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1SeriesPoint'
+    title: Ряд значений по возрастанию времени
+  v1SeriesPoint:
+    type: object
+    properties:
+      time:
+        type: string
+        format: date-time
+        title: Время показания или начало интервала
+      value:
+        type: number
+        format: double
+        title: Значение или среднее за интервал
+      min:
+        type: number
+        format: double
+      max:
+        type: number
+        format: double
+securityDefinitions:
+  bearer:
+    type: apiKey
+    description: 'JWT: Bearer <token>'
+    name: Authorization
+    in: header
+security:
+  - bearer: []

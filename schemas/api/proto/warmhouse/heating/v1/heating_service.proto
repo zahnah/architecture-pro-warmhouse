@@ -1,0 +1,145 @@
+syntax = "proto3";
+
+package warmhouse.heating.v1;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option java_multiple_files = true;
+option java_package = "ru.warmhouse.heating.v1";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Heating Service API"
+    version: "1.0.0"
+    license: {name: "MIT" url: "https://opensource.org/licenses/MIT"}
+    description: "Device Service для типа heating — пример контракта Device Service: сервисы других типов устройств публикуют такой же набор операций со своими настройками. Изменение настроек сохраняет желаемое состояние и публикует его в retained-топик devices/{deviceId}/config (AsyncAPI mqtt.yaml). Ответ возвращается сразу, не дожидаясь устройства: фактическое состояние приходит позже в devices/{deviceId}/state; если устройство не в сети, оно получит настройки при переподключении."
+  }
+  host: "api.warmhouse.example"
+  schemes: HTTPS
+  consumes: "application/json"
+  produces: "application/json"
+  security_definitions: {
+    security: {
+      key: "bearer"
+      value: {
+        type: TYPE_API_KEY
+        in: IN_HEADER
+        name: "Authorization"
+        description: "JWT: Bearer <token>"
+      }
+    }
+  }
+  security: {
+    security_requirement: {
+      key: "bearer"
+      value: {}
+    }
+  }
+  responses: {
+    key: "401"
+    value: {
+      description: "Нет или неверный токен"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+  responses: {
+    key: "403"
+    value: {
+      description: "Устройство не принадлежит дому пользователя"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+  responses: {
+    key: "404"
+    value: {
+      description: "Термостат не найден или отвязан"
+      schema: {json_schema: {ref: ".google.rpc.Status"}}
+    }
+  }
+};
+
+// Настройки и состояние термостатов.
+service HeatingService {
+  // Термостаты дома
+  rpc ListThermostats(ListThermostatsRequest) returns (ListThermostatsResponse) {
+    option (google.api.http) = {get: "/api/v2/homes/{home_id}/thermostats"};
+  }
+
+  // Желаемые и фактические настройки, статус в сети
+  rpc GetThermostat(GetThermostatRequest) returns (Thermostat) {
+    option (google.api.http) = {get: "/api/v2/thermostats/{device_id}"};
+  }
+
+  // Задать целевую температуру; выключенный термостат переходит в HEATING_MODE_MANUAL
+  rpc SetTarget(SetTargetRequest) returns (Thermostat) {
+    option (google.api.http) = {
+      put: "/api/v2/thermostats/{device_id}/target"
+      body: "*"
+    };
+  }
+
+  // Включить, выключить отопление или выбрать режим
+  rpc SetMode(SetModeRequest) returns (Thermostat) {
+    option (google.api.http) = {
+      put: "/api/v2/thermostats/{device_id}/mode"
+      body: "*"
+    };
+  }
+}
+
+enum HeatingMode {
+  HEATING_MODE_UNSPECIFIED = 0;
+  HEATING_MODE_OFF = 1;
+  HEATING_MODE_MANUAL = 2;
+  HEATING_MODE_ECO = 3;
+}
+
+message Thermostat {
+  string device_id = 1;
+  string home_id = 2;
+  // Желаемая температура, °C
+  double target_temperature = 3;
+  HeatingMode mode = 4;
+  // Последняя температура от устройства, °C; нет, пока устройство не прислало показание
+  google.protobuf.DoubleValue current_temperature = 5;
+  // Фактически греет ли котёл / радиатор
+  google.protobuf.BoolValue relay_on = 6;
+  // Устройство в сети (по devices/{deviceId}/status)
+  bool online = 7;
+  google.protobuf.Timestamp last_seen_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message ListThermostatsRequest {
+  string home_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListThermostatsResponse {
+  repeated Thermostat items = 1;
+}
+
+message GetThermostatRequest {
+  string device_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message SetTargetRequest {
+  string device_id = 1 [(google.api.field_behavior) = REQUIRED];
+  // °C; точный диапазон и шаг — в capabilities модели
+  double temperature = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      minimum: 5
+      maximum: 35
+      example: "22"
+    }
+  ];
+}
+
+message SetModeRequest {
+  string device_id = 1 [(google.api.field_behavior) = REQUIRED];
+  HeatingMode mode = 2 [(google.api.field_behavior) = REQUIRED];
+}

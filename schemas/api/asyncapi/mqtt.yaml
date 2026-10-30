@@ -1,0 +1,437 @@
+asyncapi: 3.1.0
+info:
+  title: Warm House MQTT API
+  version: 1.0.0
+  description: |
+    Контракт между облаком «Тёплого дома» и оборудованием в домах: устройствами и контроллером
+    дома. Брокер — EMQX, единственная точка подключения оборудования из интернета.
+
+    - Операции описаны со стороны облачных сервисов: `send` — сервис публикует,
+      `receive` — сервис подписан. Устройство или контроллер — вторая сторона.
+    - Учётные данные устройству выдаёт Platform Service при подключении к дому
+      (`username` = `deviceId`). ACL разрешает устройству только `devices/{deviceId}/*`,
+      контроллеру — только `homes/{homeId}/*`. При отвязке учётные данные отзываются.
+    - Настройки и сценарии публикуются retained с QoS 1: оборудование получает
+      последнюю версию сразу после (пере)подключения.
+    - Last Will: устройство при подключении задаёт `devices/{deviceId}/status = offline`,
+      контроллер — `homes/{homeId}/hub/status = offline` (retained). При обрыве связи
+      брокер публикует их сам.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+defaultContentType: application/json
+
+servers:
+  emqx:
+    host: mqtt.warmhouse.example:8883
+    protocol: secure-mqtt
+    protocolVersion: '5.0'
+    description: EMQX, MQTT over TLS
+    security:
+      - $ref: '#/components/securitySchemes/deviceCredentials'
+
+channels:
+  deviceConfig:
+    address: devices/{deviceId}/config
+    title: Желаемые настройки устройства
+    description: |
+      Retained. Формат задаёт Device Service типа устройства; ниже — термостат.
+      При отвязке устройства публикуется пустое сообщение, и брокер удаляет retained-значение.
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/deviceId'
+    messages:
+      ThermostatConfig:
+        $ref: '#/components/messages/ThermostatConfig'
+      ConfigCleared:
+        $ref: '#/components/messages/ConfigCleared'
+
+  deviceState:
+    address: devices/{deviceId}/state
+    title: Фактическое состояние устройства
+    description: Устройство публикует после применения настроек и при локальном изменении.
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/deviceId'
+    messages:
+      ThermostatState:
+        $ref: '#/components/messages/ThermostatState'
+
+  deviceTelemetry:
+    address: devices/{deviceId}/telemetry
+    title: Показания датчиков устройства
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/deviceId'
+    messages:
+      DeviceTelemetry:
+        $ref: '#/components/messages/DeviceTelemetry'
+
+  deviceStatus:
+    address: devices/{deviceId}/status
+    title: Устройство в сети / не в сети
+    description: |
+      Retained. После подключения устройство публикует `online`; `offline` публикует брокер
+      по Last Will при обрыве связи или само устройство при штатном отключении.
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/deviceId'
+    messages:
+      ConnectionStatus:
+        $ref: '#/components/messages/ConnectionStatus'
+
+  homeScenarios:
+    address: homes/{homeId}/scenarios
+    title: Набор сценариев дома
+    description: |
+      Retained. Полный набор включённых сценариев дома — контроллер заменяет им свой набор целиком.
+      Публикуется после любого изменения сценариев и после отвязки устройства.
+    parameters:
+      homeId:
+        $ref: '#/components/parameters/homeId'
+    messages:
+      ScenarioSet:
+        $ref: '#/components/messages/ScenarioSet'
+
+  homeScenarioRuns:
+    address: homes/{homeId}/scenario-runs
+    title: Отчёты контроллера о запусках сценариев
+    description: Контроллер копит отчёты без интернета и отправляет после восстановления связи.
+    parameters:
+      homeId:
+        $ref: '#/components/parameters/homeId'
+    messages:
+      ScenarioRun:
+        $ref: '#/components/messages/ScenarioRun'
+
+  hubStatus:
+    address: homes/{homeId}/hub/status
+    title: Контроллер дома в сети / не в сети
+    description: Retained; `offline` публикует брокер по Last Will контроллера.
+    parameters:
+      homeId:
+        $ref: '#/components/parameters/homeId'
+    messages:
+      ConnectionStatus:
+        $ref: '#/components/messages/ConnectionStatus'
+
+operations:
+  publishDeviceConfig:
+    action: send
+    title: Device Service отправляет желаемые настройки
+    channel:
+      $ref: '#/channels/deviceConfig'
+    tags:
+      - name: heating-service
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+        bindingVersion: 0.2.0
+
+  receiveDeviceState:
+    action: receive
+    title: Device Service принимает фактическое состояние
+    description: Сохраняет состояние и публикует `device.state.changed` в Kafka.
+    channel:
+      $ref: '#/channels/deviceState'
+    tags:
+      - name: heating-service
+    bindings:
+      mqtt:
+        qos: 1
+        bindingVersion: 0.2.0
+
+  receiveDeviceTelemetry:
+    action: receive
+    title: Device Service принимает показания
+    description: Нормализует и публикует `telemetry.reading` в Kafka.
+    channel:
+      $ref: '#/channels/deviceTelemetry'
+    tags:
+      - name: heating-service
+    bindings:
+      mqtt:
+        qos: 0
+        bindingVersion: 0.2.0
+
+  receiveDeviceStatus:
+    action: receive
+    title: Device Service отслеживает статус в сети
+    description: Обновляет `online` и `lastSeenAt`, публикует `device.connectivity.changed` в Kafka.
+    channel:
+      $ref: '#/channels/deviceStatus'
+    tags:
+      - name: heating-service
+    bindings:
+      mqtt:
+        qos: 1
+        bindingVersion: 0.2.0
+
+  publishHomeScenarios:
+    action: send
+    title: Automation Service отправляет сценарии на контроллер дома
+    channel:
+      $ref: '#/channels/homeScenarios'
+    tags:
+      - name: automation-service
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+        bindingVersion: 0.2.0
+
+  receiveScenarioRuns:
+    action: receive
+    title: Automation Service ведёт журнал запусков
+    channel:
+      $ref: '#/channels/homeScenarioRuns'
+    tags:
+      - name: automation-service
+    bindings:
+      mqtt:
+        qos: 1
+        bindingVersion: 0.2.0
+
+  receiveHubStatus:
+    action: receive
+    title: Automation Service отслеживает статус контроллера
+    channel:
+      $ref: '#/channels/hubStatus'
+    tags:
+      - name: automation-service
+    bindings:
+      mqtt:
+        qos: 1
+        bindingVersion: 0.2.0
+
+components:
+  securitySchemes:
+    deviceCredentials:
+      type: userPassword
+      description: Учётные данные, выданные Platform Service при подключении устройства или контроллера
+
+  parameters:
+    deviceId:
+      description: Идентификатор устройства (uuid)
+    homeId:
+      description: Идентификатор дома (uuid)
+
+  messages:
+    ThermostatConfig:
+      name: ThermostatConfig
+      title: Желаемые настройки термостата
+      payload:
+        $ref: '#/components/schemas/ThermostatConfig'
+      examples:
+        - payload:
+            targetTemperature: 22
+            mode: manual
+            issuedAt: '2026-10-29T09:00:00Z'
+
+    ConfigCleared:
+      name: ConfigCleared
+      title: Настройки удалены (устройство отвязано)
+      contentType: application/octet-stream
+      payload:
+        type: string
+        maxLength: 0
+        description: Пустое retained-сообщение
+
+    ThermostatState:
+      name: ThermostatState
+      title: Фактическое состояние термостата
+      payload:
+        $ref: '#/components/schemas/ThermostatState'
+      examples:
+        - payload:
+            targetTemperature: 22
+            mode: manual
+            relayOn: true
+            appliedConfigAt: '2026-10-29T09:00:00Z'
+            at: '2026-10-29T09:00:02Z'
+
+    DeviceTelemetry:
+      name: DeviceTelemetry
+      title: Пакет показаний
+      payload:
+        $ref: '#/components/schemas/DeviceTelemetry'
+      examples:
+        - payload:
+            readings:
+              - metric: temperature
+                value: 19.5
+                unit: celsius
+                at: '2026-10-29T09:00:04Z'
+
+    ConnectionStatus:
+      name: ConnectionStatus
+      title: online / offline
+      contentType: text/plain
+      payload:
+        type: string
+        enum: [online, offline]
+
+    ScenarioSet:
+      name: ScenarioSet
+      title: Набор сценариев дома
+      payload:
+        $ref: '#/components/schemas/ScenarioSet'
+
+    ScenarioRun:
+      name: ScenarioRun
+      title: Отчёт о запуске сценария
+      payload:
+        $ref: '#/components/schemas/ScenarioRun'
+      examples:
+        - payload:
+            runId: 6e5d4c3b-2a19-4807-b6a5-948372615041
+            scenarioId: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+            startedAt: '2026-10-29T09:10:00Z'
+            status: success
+
+  schemas:
+    HeatingMode:
+      type: string
+      enum: ['off', manual, eco]
+
+    ThermostatConfig:
+      type: object
+      required: [targetTemperature, mode, issuedAt]
+      properties:
+        targetTemperature:
+          type: number
+        mode:
+          $ref: '#/components/schemas/HeatingMode'
+        issuedAt:
+          type: string
+          format: date-time
+          description: Устройство возвращает это значение в appliedConfigAt, подтверждая применение
+
+    ThermostatState:
+      type: object
+      required: [targetTemperature, mode, relayOn, at]
+      properties:
+        targetTemperature:
+          type: number
+        mode:
+          $ref: '#/components/schemas/HeatingMode'
+        relayOn:
+          type: boolean
+        appliedConfigAt:
+          type: string
+          format: date-time
+          description: issuedAt последних применённых настроек
+        at:
+          type: string
+          format: date-time
+
+    DeviceTelemetry:
+      type: object
+      required: [readings]
+      properties:
+        readings:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [metric, value, unit, at]
+            properties:
+              metric:
+                type: string
+              value:
+                type: number
+              unit:
+                type: string
+              at:
+                type: string
+                format: date-time
+
+    ScenarioSet:
+      type: object
+      required: [homeId, timezone, generatedAt, scenarios]
+      properties:
+        homeId:
+          type: string
+          format: uuid
+        timezone:
+          type: string
+          example: Europe/Moscow
+        generatedAt:
+          type: string
+          format: date-time
+          description: Контроллер игнорирует набор старше уже применённого
+        scenarios:
+          type: array
+          items:
+            $ref: '#/components/schemas/Scenario'
+
+    Scenario:
+      type: object
+      required: [id, name, trigger, actions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        trigger:
+          oneOf:
+            - type: object
+              required: [type, cron]
+              properties:
+                type:
+                  type: string
+                  const: schedule
+                cron:
+                  type: string
+            - type: object
+              required: [type, deviceId, metric, operator, value]
+              properties:
+                type:
+                  type: string
+                  const: condition
+                deviceId:
+                  type: string
+                  format: uuid
+                metric:
+                  type: string
+                operator:
+                  type: string
+                  enum: [lt, lte, eq, gte, gt]
+                value:
+                  type: number
+        actions:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [deviceId, action]
+            properties:
+              deviceId:
+                type: string
+                format: uuid
+              action:
+                type: string
+              params:
+                type: object
+
+    ScenarioRun:
+      type: object
+      required: [runId, scenarioId, startedAt, status]
+      properties:
+        runId:
+          type: string
+          format: uuid
+          description: Генерирует контроллер; повторная отправка не создаёт дубль
+        scenarioId:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [success, failed, skipped]
+        error:
+          type: string

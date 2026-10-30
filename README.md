@@ -148,11 +148,48 @@
 
 ### 1. Тип API
 
-Укажите, какой тип API вы будете использовать для взаимодействия микросервисов. Объясните своё решение.
+Используются три вида API — каждый там, где он подходит лучше остальных.
+
+| Где | Тип API | Кто участвует |
+|---|---|---|
+| Клиенты → система | REST / JSON over HTTPS | Мобильное и веб-приложение, партнёры → API Gateway |
+| Синхронно между сервисами | gRPC (Protobuf, HTTP/2) | API Gateway → Platform, Device Service, Automation, Telemetry; Legacy Monolith → Telemetry |
+| Асинхронно между сервисами | События в Apache Kafka (Protobuf) | Platform, Device Service → Automation, Telemetry, Device Service |
+| Облако ↔ оборудование в доме | MQTT 5 over TLS (EMQX) | Device Service ↔ устройства; Automation ↔ контроллер дома |
+
+**REST снаружи.** Клиентам (мобильное приложение, веб, партнёры) нужен понятный и широко поддерживаемый протокол: REST работает из браузера без дополнительных библиотек, легко отлаживается и документируется в OpenAPI. Текущие клиенты монолита уже работают с REST (`/api/v1/sensors`), новый API доступен как `/api/v2`.
+
+**gRPC внутри.** Сервисы написаны на разных языках (Go, Java, Python и другие для Device Service), и gRPC даёт строго типизированный контракт в `.proto`, из которого генерируются клиенты и серверы для всех этих языков. Бинарный Protobuf поверх HTTP/2 быстрее JSON, ломающие изменения контракта ловятся на этапе сборки. API Gateway на grpc-gateway отображает REST-запросы на gRPC-методы по аннотациям `google.api.http` в `.proto`, поэтому внешний REST и внутренний gRPC описываются одним контрактом, а Swagger генерируется из него же (`operationId` = `<Сервис>_<gRPC-метод>`).
+
+**События в Kafka.** Подключение и отвязка устройства, показания и смена статуса в сети интересны нескольким сервисам сразу. Публикация события вместо синхронных вызовов убирает прямые зависимости: Platform Service не знает, какие Device Service есть, и новый тип устройства добавляется без изменения других сервисов. Kafka хранит события, поэтому сервис, который был недоступен, дочитает пропущенное, а новый сервис восстановит список устройств из compacted-топика `device.lifecycle`. Значения событий — бинарный Protobuf, как и в gRPC: схемы событий лежат в `.proto` рядом с остальными контрактами, проверяются при сборке и дают типизированные классы для всех языков сервисов. Тип события передаётся в заголовке записи `eventType`.
+
+**MQTT для оборудования.** Устройства и контроллеры работают в домашних сетях за NAT и с нестабильной связью. MQTT — лёгкий протокол, где оборудование само держит соединение с брокером. Retained-сообщения доставляют последние настройки и сценарии после переподключения, а Last Will сообщает, что устройство или контроллер пропали из сети.
 
 ### 2. Документация API
 
-Здесь приложите ссылки на документацию API для микросервисов, которые вы спроектировали в первой части проектной работы. Для документирования используйте Swagger/OpenAPI или AsyncAPI.
+Синхронные API описаны контрактами gRPC в `.proto` с аннотациями `google.api.http` (маршрут REST в API Gateway) и `protoc-gen-openapiv2` (описание для Swagger). Swagger 2.0 генерируется из них командой `make precommit`:
+
+| Сервис | Контракт gRPC | Swagger |
+|---|---|---|
+| Platform Service — пользователи, дома, каталог, подключение и отвязка устройств | [platform_service.proto](schemas/api/proto/warmhouse/platform/v1/platform_service.proto) | [platform_service.swagger.yaml](schemas/api/swagger/platform_service.swagger.yaml) |
+| Device Service на примере Heating Service — настройки и состояние термостатов | [heating_service.proto](schemas/api/proto/warmhouse/heating/v1/heating_service.proto) | [heating_service.swagger.yaml](schemas/api/swagger/heating_service.swagger.yaml) |
+| Automation Service — сценарии, журнал запусков, статус контроллера | [automation_service.proto](schemas/api/proto/warmhouse/automation/v1/automation_service.proto) | [automation_service.swagger.yaml](schemas/api/swagger/automation_service.swagger.yaml) |
+| Telemetry Service — показания и история доступности | [telemetry_service.proto](schemas/api/proto/warmhouse/telemetry/v1/telemetry_service.proto) | [telemetry_service.swagger.yaml](schemas/api/swagger/telemetry_service.swagger.yaml) |
+
+Асинхронные API — AsyncAPI 3.1. Payload событий Kafka описан Protobuf-схемами (`schemaFormat: application/vnd.google.protobuf;version=3`), они повторяют контракт [device_events.proto](schemas/api/proto/warmhouse/events/v1/device_events.proto). Состояние в `DeviceStateChanged` передаётся как `google.protobuf.Any` с сообщением из контракта Device Service, для термостата — [heating_events.proto](schemas/api/proto/warmhouse/heating/v1/heating_events.proto).
+
+| Канал | Документация |
+|---|---|
+| Event Bus (Kafka, Protobuf): `device.lifecycle`, `telemetry.reading`, `device.state.changed`, `device.connectivity.changed` | [event-bus.yaml](schemas/api/asyncapi/event-bus.yaml) |
+| MQTT (EMQX): настройки, состояние, показания и статус устройств; сценарии, запуски и статус контроллера дома | [mqtt.yaml](schemas/api/asyncapi/mqtt.yaml) |
+
+**Сборка и просмотр:**
+
+- `make build` — собирает все образы `docker-compose.yaml`.
+- `make up` — запускает все контейнеры. Просмотрщики документации:
+  - Swagger UI — <http://localhost:8091>
+  - AsyncAPI UI — <http://localhost:8092>
+- `make precommit` — всё, что нужно перед коммитом: экспорт диаграмм PlantUML в `schemas/diagrams/out/`, компиляция `.proto` и генерация `schemas/api/swagger/`, сборка образов.
 
 # Задание 5. Работа с docker и docker-compose
 

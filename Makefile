@@ -1,10 +1,13 @@
-.PHONY: up down precommit
+.PHONY: build up precommit
+
+build:
+	docker compose --profile tools build
 
 up:
 	docker compose up -d
 
-down:
-	docker compose down
-
+# Viewer images copy the generated specs, so images are built after generation
 precommit:
-	bash schemas/scripts/export-diagrams.sh
+	docker compose run --rm --build --user "$$(id -u):$$(id -g)" plantuml
+	docker compose run --rm --build --user "$$(id -u):$$(id -g)" protoc
+	$(MAKE) build

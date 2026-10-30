@@ -1,0 +1,500 @@
+swagger: "2.0"
+info:
+  title: Automation Service API
+  description: 'Сценарии автоматизации дома, журнал запусков и статус контроллера дома. Сценарии исполняет контроллер дома локально: после любого изменения сервис публикует актуальный набор включённых сценариев в retained-топик homes/{homeId}/scenarios, запуски приходят из homes/{homeId}/scenario-runs (AsyncAPI mqtt.yaml).'
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+tags:
+  - name: AutomationService
+    description: Сценарии дома и статус контроллера.
+host: api.warmhouse.example
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+paths:
+  /api/v2/homes/{homeId}/hub:
+    get:
+      summary: Статус контроллера дома
+      operationId: AutomationService_GetHubStatus
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1HubStatus'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Пользователь не член этого дома
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Сценарий или дом не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+      tags:
+        - AutomationService
+  /api/v2/homes/{homeId}/scenarios:
+    get:
+      summary: Сценарии дома
+      operationId: AutomationService_ListScenarios
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListScenariosResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Пользователь не член этого дома
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Сценарий или дом не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: enabled
+          description: Фильтр по признаку «включён»
+          in: query
+          required: false
+          type: boolean
+      tags:
+        - AutomationService
+    post:
+      summary: Создать сценарий.
+      description: |-
+        Проверяет, что устройства условия и действий привязаны к дому и поддерживают действие
+        (иначе FAILED_PRECONDITION / HTTP 400). После сохранения набор сценариев дома публикуется на контроллер.
+      operationId: AutomationService_CreateScenario
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Scenario'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Пользователь не член этого дома
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Сценарий или дом не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/AutomationServiceCreateScenarioBody'
+      tags:
+        - AutomationService
+  /api/v2/homes/{homeId}/scenarios/{scenarioId}:
+    get:
+      summary: Сценарий
+      operationId: AutomationService_GetScenario
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Scenario'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Пользователь не член этого дома
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Сценарий или дом не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: scenarioId
+          in: path
+          required: true
+          type: string
+      tags:
+        - AutomationService
+    delete:
+      summary: Удалить сценарий
+      operationId: AutomationService_DeleteScenario
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            type: object
+            properties: {}
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Пользователь не член этого дома
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Сценарий или дом не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: scenarioId
+          in: path
+          required: true
+          type: string
+      tags:
+        - AutomationService
+    put:
+      summary: Изменить сценарий, включить или выключить его.
+      description: Сценарий, отключённый из-за отвязки устройства, можно включить только после замены этого устройства.
+      operationId: AutomationService_UpdateScenario
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Scenario'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Пользователь не член этого дома
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Сценарий или дом не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: scenarioId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/AutomationServiceUpdateScenarioBody'
+      tags:
+        - AutomationService
+  /api/v2/homes/{homeId}/scenarios/{scenarioId}/runs:
+    get:
+      summary: Журнал запусков сценария, новые сначала
+      operationId: AutomationService_ListScenarioRuns
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListScenarioRunsResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Пользователь не член этого дома
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Сценарий или дом не найден
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+        - name: scenarioId
+          in: path
+          required: true
+          type: string
+        - name: from
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: to
+          in: query
+          required: false
+          type: string
+          format: date-time
+        - name: limit
+          description: По умолчанию 100, не больше 500
+          in: query
+          required: false
+          type: integer
+          format: int32
+      tags:
+        - AutomationService
+definitions:
+  AutomationServiceCreateScenarioBody:
+    type: object
+    properties:
+      name:
+        type: string
+      enabled:
+        type: boolean
+        title: По умолчанию true
+      trigger:
+        $ref: '#/definitions/v1Trigger'
+      actions:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Action'
+        minItems: 1
+    required:
+      - name
+      - trigger
+      - actions
+  AutomationServiceUpdateScenarioBody:
+    type: object
+    properties:
+      name:
+        type: string
+      enabled:
+        type: boolean
+      trigger:
+        $ref: '#/definitions/v1Trigger'
+      actions:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Action'
+        minItems: 1
+    required:
+      - name
+      - enabled
+      - trigger
+      - actions
+  protobufAny:
+    type: object
+    properties:
+      '@type':
+        type: string
+    additionalProperties: true
+  protobufNullValue:
+    type: string
+    description: |-
+      `NullValue` is a singleton enumeration to represent the null value for the
+      `Value` type union.
+
+      The JSON representation for `NullValue` is JSON `null`.
+  rpcStatus:
+    type: object
+    properties:
+      code:
+        type: integer
+        format: int32
+      message:
+        type: string
+      details:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/protobufAny'
+  v1Action:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      action:
+        type: string
+        example: setTarget
+        title: Действие из capabilities модели устройства
+      params:
+        type: object
+        example:
+          temperature: 22
+  v1ComparisonOperator:
+    type: string
+    enum:
+      - COMPARISON_OPERATOR_LT
+      - COMPARISON_OPERATOR_LTE
+      - COMPARISON_OPERATOR_EQ
+      - COMPARISON_OPERATOR_GTE
+      - COMPARISON_OPERATOR_GT
+  v1ConditionTrigger:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      metric:
+        type: string
+        example: temperature
+      operator:
+        $ref: '#/definitions/v1ComparisonOperator'
+      value:
+        type: number
+        format: double
+    title: Запуск по показанию устройства, например «температура ниже 19 °C»
+  v1HubStatus:
+    type: object
+    properties:
+      homeId:
+        type: string
+      online:
+        type: boolean
+        title: По homes/{homeId}/hub/status (Last Will)
+      lastSeenAt:
+        type: string
+        format: date-time
+  v1ListScenarioRunsResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1ScenarioRun'
+  v1ListScenariosResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Scenario'
+  v1RunStatus:
+    type: string
+    enum:
+      - RUN_STATUS_SUCCESS
+      - RUN_STATUS_FAILED
+      - RUN_STATUS_SKIPPED
+  v1Scenario:
+    type: object
+    properties:
+      id:
+        type: string
+        readOnly: true
+      homeId:
+        type: string
+      name:
+        type: string
+      enabled:
+        type: boolean
+      disabledReason:
+        type: string
+        title: Почему сценарий выключен системой, например DEVICE_UNREGISTERED
+        readOnly: true
+      trigger:
+        $ref: '#/definitions/v1Trigger'
+      actions:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Action'
+        title: Выполняются по порядку
+      createdBy:
+        type: string
+        readOnly: true
+      createdAt:
+        type: string
+        format: date-time
+        readOnly: true
+      updatedAt:
+        type: string
+        format: date-time
+        readOnly: true
+  v1ScenarioRun:
+    type: object
+    properties:
+      id:
+        type: string
+      scenarioId:
+        type: string
+      startedAt:
+        type: string
+        format: date-time
+      status:
+        $ref: '#/definitions/v1RunStatus'
+      error:
+        type: string
+  v1ScheduleTrigger:
+    type: object
+    properties:
+      cron:
+        type: string
+        example: 0 7 * * 1-5
+        title: Cron-выражение в часовом поясе дома
+    title: Запуск по расписанию
+  v1Trigger:
+    type: object
+    properties:
+      schedule:
+        $ref: '#/definitions/v1ScheduleTrigger'
+      condition:
+        $ref: '#/definitions/v1ConditionTrigger'
+    title: Задаётся ровно одно из полей
+securityDefinitions:
+  bearer:
+    type: apiKey
+    description: 'JWT: Bearer <token>'
+    name: Authorization
+    in: header
+security:
+  - bearer: []

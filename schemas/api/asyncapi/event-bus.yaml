@@ -1,0 +1,393 @@
+asyncapi: 3.1.0
+info:
+  title: Warm House Event Bus
+  version: 1.0.0
+  description: |
+    Доменные события между микросервисами «Тёплого дома» в Apache Kafka.
+
+    - Ключ сообщения во всех топиках — `deviceId`: события одного устройства попадают в одну
+      партицию и читаются по порядку.
+    - Значение записи — бинарный Protobuf (proto3). Контракт событий —
+      `schemas/api/proto/warmhouse/events/v1/device_events.proto`, пакет `warmhouse.events.v1`;
+      схемы сообщений ниже повторяют его. Тип события — в заголовке `eventType`
+      (имя сообщения без пакета), по нему потребитель выбирает, чем декодировать значение.
+    - Схема меняется только обратно совместимо: новые поля — с новыми номерами,
+      номера удалённых полей помечаются `reserved`.
+    - Доставка at-least-once: потребители обрабатывают события идемпотентно по `event_id`.
+    - Каждый сервис читает топик своей consumer group (`groupId` = имя сервиса).
+    - Примеры сообщений приведены в JSON-представлении Protobuf.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+defaultContentType: application/x-protobuf
+
+servers:
+  kafka:
+    host: kafka.warmhouse.internal:9092
+    protocol: kafka
+    description: Kafka-кластер внутри экосистемы; снаружи недоступен
+
+channels:
+  deviceLifecycle:
+    address: device.lifecycle
+    title: Жизненный цикл устройства
+    description: |
+      Compacted-топик: для каждого `deviceId` хранится последнее событие. Новый сервис
+      читает топик с начала и получает актуальный список устройств; отвязанные устройства
+      приходят как `DeviceUnregistered` и не «воскресают».
+    messages:
+      DeviceRegistered:
+        $ref: '#/components/messages/DeviceRegistered'
+      DeviceUnregistered:
+        $ref: '#/components/messages/DeviceUnregistered'
+    bindings:
+      kafka:
+        topic: device.lifecycle
+        partitions: 12
+        topicConfiguration:
+          cleanup.policy: [compact]
+          retention.ms: -1
+        bindingVersion: 0.5.0
+
+  telemetryReading:
+    address: telemetry.reading
+    title: Показания устройств
+    description: Нормализованные показания от всех Device Service.
+    messages:
+      TelemetryReading:
+        $ref: '#/components/messages/TelemetryReading'
+    bindings:
+      kafka:
+        topic: telemetry.reading
+        partitions: 24
+        topicConfiguration:
+          cleanup.policy: [delete]
+          retention.ms: 604800000
+        bindingVersion: 0.5.0
+
+  deviceStateChanged:
+    address: device.state.changed
+    title: Фактическое состояние устройства изменилось
+    description: Устройство подтвердило новое состояние (`devices/{deviceId}/state`).
+    messages:
+      DeviceStateChanged:
+        $ref: '#/components/messages/DeviceStateChanged'
+    bindings:
+      kafka:
+        topic: device.state.changed
+        partitions: 12
+        topicConfiguration:
+          cleanup.policy: [delete]
+          retention.ms: 604800000
+        bindingVersion: 0.5.0
+
+  deviceConnectivityChanged:
+    address: device.connectivity.changed
+    title: Устройство в сети / не в сети
+    description: Публикуется Device Service по `devices/{deviceId}/status` (Last Will в MQTT).
+    messages:
+      DeviceConnectivityChanged:
+        $ref: '#/components/messages/DeviceConnectivityChanged'
+    bindings:
+      kafka:
+        topic: device.connectivity.changed
+        partitions: 12
+        topicConfiguration:
+          cleanup.policy: [delete]
+          retention.ms: 604800000
+        bindingVersion: 0.5.0
+
+operations:
+  publishDeviceLifecycle:
+    action: send
+    title: Platform Service публикует подключение и отвязку
+    description: После `AddDevice` и `RemoveDevice`.
+    channel:
+      $ref: '#/channels/deviceLifecycle'
+    tags:
+      - name: platform-service
+    messages:
+      - $ref: '#/channels/deviceLifecycle/messages/DeviceRegistered'
+      - $ref: '#/channels/deviceLifecycle/messages/DeviceUnregistered'
+
+  consumeDeviceLifecycle:
+    action: receive
+    title: Device Service и Automation Service ведут свой список устройств
+    description: |
+      - Device Service берёт только события своего `type`: создаёт состояние устройства или
+        удаляет его и очищает retained `devices/{deviceId}/config`.
+      - Automation Service обновляет справочник устройств дома; при отвязке отключает сценарии
+        с устройством и публикует новый набор сценариев на контроллер.
+    channel:
+      $ref: '#/channels/deviceLifecycle'
+    tags:
+      - name: heating-service
+      - name: automation-service
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: [heating-service, automation-service]
+        bindingVersion: 0.5.0
+    messages:
+      - $ref: '#/channels/deviceLifecycle/messages/DeviceRegistered'
+      - $ref: '#/channels/deviceLifecycle/messages/DeviceUnregistered'
+
+  publishTelemetryReading:
+    action: send
+    title: Device Service публикует показания
+    channel:
+      $ref: '#/channels/telemetryReading'
+    tags:
+      - name: heating-service
+
+  consumeTelemetryReading:
+    action: receive
+    title: Telemetry Service сохраняет показания
+    channel:
+      $ref: '#/channels/telemetryReading'
+    tags:
+      - name: telemetry-service
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: [telemetry-service]
+        bindingVersion: 0.5.0
+
+  publishDeviceStateChanged:
+    action: send
+    title: Device Service публикует смену фактического состояния
+    channel:
+      $ref: '#/channels/deviceStateChanged'
+    tags:
+      - name: heating-service
+
+  publishDeviceConnectivityChanged:
+    action: send
+    title: Device Service публикует смену статуса в сети
+    channel:
+      $ref: '#/channels/deviceConnectivityChanged'
+    tags:
+      - name: heating-service
+
+  consumeDeviceConnectivityChanged:
+    action: receive
+    title: Telemetry Service пишет историю доступности, Automation Service — статус в справочнике
+    channel:
+      $ref: '#/channels/deviceConnectivityChanged'
+    tags:
+      - name: telemetry-service
+      - name: automation-service
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: [telemetry-service, automation-service]
+        bindingVersion: 0.5.0
+
+components:
+  messages:
+    DeviceRegistered:
+      name: DeviceRegistered
+      title: Устройство подключено к дому
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        schemaFormat: application/vnd.google.protobuf;version=3
+        schema: |
+          syntax = "proto3";
+          package warmhouse.events.v1;
+
+          import "google/protobuf/timestamp.proto";
+
+          // Platform Service после AddDevice
+          message DeviceRegistered {
+            // UUID; потребители обрабатывают события идемпотентно по нему
+            string event_id = 1;
+            google.protobuf.Timestamp occurred_at = 2;
+            string device_id = 3;
+            string home_id = 4;
+            // Тип устройства из каталога; по нему Device Service выбирает свои устройства
+            string type = 5;
+            string model_id = 6;
+          }
+      bindings:
+        kafka:
+          key:
+            $ref: '#/components/schemas/DeviceKey'
+          bindingVersion: 0.5.0
+      examples:
+        - headers:
+            eventType: DeviceRegistered
+          payload:
+            eventId: 0b7f6c1e-4a52-4f1e-9a3d-6c2b8e7d1f00
+            occurredAt: '2026-10-29T09:00:00Z'
+            deviceId: 2f9b7c10-8a4e-4d2b-b1c3-5e6f7a8b9c0d
+            homeId: 9a1d3e70-1c2b-4f5a-8e9d-0a1b2c3d4e5f
+            type: heating
+            modelId: 5c3a2b10-7d6e-4f8a-9b0c-1d2e3f4a5b6c
+
+    DeviceUnregistered:
+      name: DeviceUnregistered
+      title: Устройство отвязано от дома
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        schemaFormat: application/vnd.google.protobuf;version=3
+        schema: |
+          syntax = "proto3";
+          package warmhouse.events.v1;
+
+          import "google/protobuf/timestamp.proto";
+
+          // Platform Service после RemoveDevice
+          message DeviceUnregistered {
+            string event_id = 1;
+            google.protobuf.Timestamp occurred_at = 2;
+            string device_id = 3;
+            string home_id = 4;
+          }
+      bindings:
+        kafka:
+          key:
+            $ref: '#/components/schemas/DeviceKey'
+          bindingVersion: 0.5.0
+
+    TelemetryReading:
+      name: TelemetryReading
+      title: Показание устройства
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        schemaFormat: application/vnd.google.protobuf;version=3
+        schema: |
+          syntax = "proto3";
+          package warmhouse.events.v1;
+
+          import "google/protobuf/timestamp.proto";
+
+          // Нормализованное показание
+          message TelemetryReading {
+            string event_id = 1;
+            google.protobuf.Timestamp occurred_at = 2;
+            string device_id = 3;
+            string home_id = 4;
+            // temperature, humidity, ...
+            string metric = 5;
+            double value = 6;
+            // celsius, percent, ...
+            string unit = 7;
+            // Время измерения на устройстве
+            google.protobuf.Timestamp measured_at = 8;
+          }
+      bindings:
+        kafka:
+          key:
+            $ref: '#/components/schemas/DeviceKey'
+          bindingVersion: 0.5.0
+      examples:
+        - headers:
+            eventType: TelemetryReading
+          payload:
+            eventId: 4d8e2f30-6b1a-4c7d-8e9f-0a1b2c3d4e5f
+            occurredAt: '2026-10-29T09:00:05Z'
+            deviceId: 2f9b7c10-8a4e-4d2b-b1c3-5e6f7a8b9c0d
+            homeId: 9a1d3e70-1c2b-4f5a-8e9d-0a1b2c3d4e5f
+            metric: temperature
+            value: 19.5
+            unit: celsius
+            measuredAt: '2026-10-29T09:00:04Z'
+
+    DeviceStateChanged:
+      name: DeviceStateChanged
+      title: Фактическое состояние устройства
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        schemaFormat: application/vnd.google.protobuf;version=3
+        schema: |
+          syntax = "proto3";
+          package warmhouse.events.v1;
+
+          import "google/protobuf/any.proto";
+          import "google/protobuf/timestamp.proto";
+
+          // Устройство подтвердило новое состояние
+          message DeviceStateChanged {
+            string event_id = 1;
+            google.protobuf.Timestamp occurred_at = 2;
+            string device_id = 3;
+            string home_id = 4;
+            string type = 5;
+            // Сообщение состояния из контракта Device Service этого типа,
+            // для heating — warmhouse.heating.v1.ThermostatState
+            google.protobuf.Any state = 6;
+          }
+      bindings:
+        kafka:
+          key:
+            $ref: '#/components/schemas/DeviceKey'
+          bindingVersion: 0.5.0
+      examples:
+        - headers:
+            eventType: DeviceStateChanged
+          payload:
+            eventId: 7a2c4e60-9d1b-4f3a-8c5e-2b4d6f8a0c1e
+            occurredAt: '2026-10-29T09:00:06Z'
+            deviceId: 2f9b7c10-8a4e-4d2b-b1c3-5e6f7a8b9c0d
+            homeId: 9a1d3e70-1c2b-4f5a-8e9d-0a1b2c3d4e5f
+            type: heating
+            state:
+              '@type': type.googleapis.com/warmhouse.heating.v1.ThermostatState
+              mode: HEATING_MODE_MANUAL
+              targetTemperature: 22
+              currentTemperature: 19.5
+              relayOn: true
+
+    DeviceConnectivityChanged:
+      name: DeviceConnectivityChanged
+      title: Устройство в сети / не в сети
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        schemaFormat: application/vnd.google.protobuf;version=3
+        schema: |
+          syntax = "proto3";
+          package warmhouse.events.v1;
+
+          import "google/protobuf/timestamp.proto";
+
+          // Device Service по devices/{deviceId}/status
+          message DeviceConnectivityChanged {
+            string event_id = 1;
+            google.protobuf.Timestamp occurred_at = 2;
+            string device_id = 3;
+            string home_id = 4;
+            bool online = 5;
+          }
+      bindings:
+        kafka:
+          key:
+            $ref: '#/components/schemas/DeviceKey'
+          bindingVersion: 0.5.0
+
+  schemas:
+    DeviceKey:
+      type: string
+      format: uuid
+      description: deviceId в UTF-8
+
+    EventHeaders:
+      type: object
+      required: [eventType]
+      properties:
+        eventType:
+          type: string
+          description: Имя Protobuf-сообщения в пакете `warmhouse.events.v1`
+          enum:
+            - DeviceRegistered
+            - DeviceUnregistered
+            - TelemetryReading
+            - DeviceStateChanged
+            - DeviceConnectivityChanged

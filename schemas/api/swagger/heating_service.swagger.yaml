@@ -1,0 +1,247 @@
+swagger: "2.0"
+info:
+  title: Heating Service API
+  description: 'Device Service для типа heating — пример контракта Device Service: сервисы других типов устройств публикуют такой же набор операций со своими настройками. Изменение настроек сохраняет желаемое состояние и публикует его в retained-топик devices/{deviceId}/config (AsyncAPI mqtt.yaml). Ответ возвращается сразу, не дожидаясь устройства: фактическое состояние приходит позже в devices/{deviceId}/state; если устройство не в сети, оно получит настройки при переподключении.'
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+tags:
+  - name: HeatingService
+    description: Настройки и состояние термостатов.
+host: api.warmhouse.example
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+paths:
+  /api/v2/homes/{homeId}/thermostats:
+    get:
+      summary: Термостаты дома
+      operationId: HeatingService_ListThermostats
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1ListThermostatsResponse'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Устройство не принадлежит дому пользователя
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Термостат не найден или отвязан
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          type: string
+      tags:
+        - HeatingService
+  /api/v2/thermostats/{deviceId}:
+    get:
+      summary: Желаемые и фактические настройки, статус в сети
+      operationId: HeatingService_GetThermostat
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Thermostat'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Устройство не принадлежит дому пользователя
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Термостат не найден или отвязан
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+      tags:
+        - HeatingService
+  /api/v2/thermostats/{deviceId}/mode:
+    put:
+      summary: Включить, выключить отопление или выбрать режим
+      operationId: HeatingService_SetMode
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Thermostat'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Устройство не принадлежит дому пользователя
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Термостат не найден или отвязан
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/HeatingServiceSetModeBody'
+      tags:
+        - HeatingService
+  /api/v2/thermostats/{deviceId}/target:
+    put:
+      summary: Задать целевую температуру; выключенный термостат переходит в HEATING_MODE_MANUAL
+      operationId: HeatingService_SetTarget
+      responses:
+        "200":
+          description: A successful response.
+          schema:
+            $ref: '#/definitions/v1Thermostat'
+        "401":
+          description: Нет или неверный токен
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "403":
+          description: Устройство не принадлежит дому пользователя
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        "404":
+          description: Термостат не найден или отвязан
+          schema:
+            $ref: '#/definitions/rpcStatus'
+        default:
+          description: An unexpected error response.
+          schema:
+            $ref: '#/definitions/rpcStatus'
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          type: string
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/HeatingServiceSetTargetBody'
+      tags:
+        - HeatingService
+definitions:
+  HeatingServiceSetModeBody:
+    type: object
+    properties:
+      mode:
+        $ref: '#/definitions/v1HeatingMode'
+    required:
+      - mode
+  HeatingServiceSetTargetBody:
+    type: object
+    properties:
+      temperature:
+        type: number
+        format: double
+        example: 22
+        title: °C; точный диапазон и шаг — в capabilities модели
+        maximum: 35
+        minimum: 5
+    required:
+      - temperature
+  protobufAny:
+    type: object
+    properties:
+      '@type':
+        type: string
+    additionalProperties: true
+  rpcStatus:
+    type: object
+    properties:
+      code:
+        type: integer
+        format: int32
+      message:
+        type: string
+      details:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/protobufAny'
+  v1HeatingMode:
+    type: string
+    enum:
+      - HEATING_MODE_OFF
+      - HEATING_MODE_MANUAL
+      - HEATING_MODE_ECO
+  v1ListThermostatsResponse:
+    type: object
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          $ref: '#/definitions/v1Thermostat'
+  v1Thermostat:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      homeId:
+        type: string
+      targetTemperature:
+        type: number
+        format: double
+        title: Желаемая температура, °C
+      mode:
+        $ref: '#/definitions/v1HeatingMode'
+      currentTemperature:
+        type: number
+        format: double
+        title: Последняя температура от устройства, °C; нет, пока устройство не прислало показание
+      relayOn:
+        type: boolean
+        title: Фактически греет ли котёл / радиатор
+      online:
+        type: boolean
+        title: Устройство в сети (по devices/{deviceId}/status)
+      lastSeenAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+securityDefinitions:
+  bearer:
+    type: apiKey
+    description: 'JWT: Bearer <token>'
+    name: Authorization
+    in: header
+security:
+  - bearer: []
