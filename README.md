@@ -185,11 +185,12 @@
 
 **Сборка и просмотр:**
 
-- `make build` — собирает все образы `docker-compose.yaml`.
+- `make build` — собирает все образы `docker-compose.yaml` и [apps/docker-compose.yml](apps/docker-compose.yml).
 - `make up` — запускает все контейнеры. Просмотрщики документации:
   - Swagger UI — <http://localhost:8091>
   - AsyncAPI UI — <http://localhost:8092>
-- `make precommit` — всё, что нужно перед коммитом: экспорт диаграмм PlantUML в `schemas/diagrams/out/`, компиляция `.proto` и генерация `schemas/api/swagger/`, сборка образов.
+  - монолит smart_home — <http://localhost:8080>, temperature-api — <http://localhost:8081> (см. задание 5)
+- `make precommit` — всё, что нужно перед коммитом: экспорт диаграмм PlantUML в `schemas/diagrams/out/`, компиляция `.proto` и генерация `schemas/api/swagger/`, e2e-тесты [apps/e2e](apps/e2e) (testcontainers), сборка образов. Если тесты падают, падает и `make precommit`.
 
 # Задание 5. Работа с docker и docker-compose
 
@@ -245,6 +246,13 @@ Locations - название комнаты, sensorId - идентификато
 Должно при каждом вызове отображаться разное значение температуры
 
 Ревьюер будет проверять точно так же.
+
+**Решение:**
+
+- [apps/temperature-api](apps/temperature-api) — сервис на Go (только стандартная библиотека): `GET /temperature?location=&sensorId=` и `GET /temperature/{sensorId}` возвращают случайную температуру от 18 до 28 °C, порт 8081.
+- [apps/docker-compose.yml](apps/docker-compose.yml) — `postgres` (инициализация через `./smart_home/init.sql`, том `postgres_data`, healthcheck на базу `smarthome`), `temperature-api` и монолит `app`, который стартует после готовности обоих.
+- Запуск: `make build && make up` из корня репозитория либо `cd apps && ./init.sh`.
+- [apps/e2e](apps/e2e) — e2e-тесты на Go с testcontainers, обязательный шаг `make precommit`. Тесты сами собирают образы temperature-api и smart_home, поднимают их вместе с postgres (с `init.sql`) в изолированной сети на случайных портах и проходят сценарий ревьюера: «Create Sensor», затем несколько вызовов «Get All Sensors» с проверкой, что температура меняется. Отдельный запуск: `docker compose -f apps/docker-compose.yml run --rm --build e2e`.
 
 
 # **Задание 6. Разработка MVP**
